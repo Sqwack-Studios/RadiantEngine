@@ -8,6 +8,7 @@ bin-int/
 *.TGA
 *.vcxproj
 *.vcxproj.user
+*.sln
 
 # User-specific files
 *.rsuser
