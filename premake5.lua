@@ -13,8 +13,11 @@ workspace "RenderingEngine"
 
 	
 
-	startproject "RadiantEngine"
+	startproject "ClientApp"
 
 
 	group "Engine"
 		include "RadiantEngine/re_premake5.lua"
+
+	group "ClientApp"
+		include "ClientApp/client_premake5.lua"
