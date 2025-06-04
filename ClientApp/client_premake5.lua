@@ -1,5 +1,5 @@
 project "ClientApp "
-    kind "WindowedApp"
+    kind "ConsoleApp"
     language "C++"
     cppdialect "C++20"
 
@@ -11,25 +11,22 @@ project "ClientApp "
 
     includedirs
 	{
-		"vendor/**",
-		"source/**"
+		"../RadiantEngine/includes",
 	}
 
 
 	files
 	{
-		"vendor/**.h",
-		"vendor/**.c",
-		"vendor/**.hpp",
-		"vendor/**.cpp",
-
-		"source/**.h",
-		"source/**.c",
-		"source/**.hpp",
 		"source/**.cpp",
-
+		"../RadiantEngine/includes/**.hpp",
+		"../RadiantEngine/includes/**.h"
 	}
 
+
+	links
+	{
+		"RadiantEngine"
+	}
 
 		filter "system:windows"
 		systemversion "latest"

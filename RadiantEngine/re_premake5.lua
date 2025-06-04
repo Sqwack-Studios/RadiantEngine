@@ -1,4 +1,4 @@
-﻿project "RadiantEngine"
+project "RadiantEngine"
 	kind "StaticLib"
 	language "C++"
 	cppdialect "C++20"
@@ -11,24 +11,22 @@
 	
 	includedirs
 	{
-		"vendor/**",
-		"source/**"
+		"includes",
+		"source"
 	}
 
 
 	files
 	{
-		"vendor/**.h",
-		"vendor/**.c",
-		"vendor/**.hpp",
-		"vendor/**.cpp",
-
-		"source/**.h",
-		"source/**.c",
 		"source/**.hpp",
 		"source/**.cpp",
-
+		"source/**.h",
+		"source/**.c",
+		"includes/**.h",
+		"includes/**.hpp"
 	}
+
+	defines{"NOMINMAX"}
 
 	filter "system:windows"
 		systemversion "latest"
