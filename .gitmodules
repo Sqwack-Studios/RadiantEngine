@@ -1,0 +1,3 @@
+[submodule "quill"]
+	path = quill
+	url = git@github.com:Sqwack-Studios/quill.git
