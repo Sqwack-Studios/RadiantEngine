@@ -11,21 +11,23 @@ project "ClientApp "
 
     includedirs
 	{
-		"../RadiantEngine/includes",
+		"../RadiantEngine/include",
+		"../vendor/quill/include"
 	}
 
 
 	files
 	{
 		"source/**.cpp",
-		"../RadiantEngine/includes/**.hpp",
-		"../RadiantEngine/includes/**.h"
+		"../RadiantEngine/include/**.hpp",
+		"../RadiantEngine/include/**.h"
 	}
 
 
 	links
 	{
-		"RadiantEngine"
+		--"RadiantEngine",
+		"quill"
 	}
 
 		filter "system:windows"

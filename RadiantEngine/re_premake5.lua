@@ -9,10 +9,17 @@ project "RadiantEngine"
 
 	warnings "High"
 	
+	links 
+	{
+		"quill"
+	}
+
+
 	includedirs
 	{
 		"includes",
-		"source"
+		"source",
+		"../vendor/quill/include"
 	}
 
 
