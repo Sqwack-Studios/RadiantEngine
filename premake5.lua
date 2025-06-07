@@ -8,12 +8,15 @@ workspace "RenderingEngine"
 		"Shipping"
 	}
 
+	startproject "ClientApp"
 
 	outputdir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
 
 	
 
-	startproject "ClientApp"
+
+	group "Logger"
+		include "vendor/quill/quill_premake5.lua"
 
 
 	group "Engine"
@@ -21,3 +24,4 @@ workspace "RenderingEngine"
 
 	group "ClientApp"
 		include "ClientApp/client_premake5.lua"
+
