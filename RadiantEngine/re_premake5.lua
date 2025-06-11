@@ -17,7 +17,7 @@ project "RadiantEngine"
 
 	includedirs
 	{
-		"includes",
+		"include",
 		"source",
 		"../vendor/quill/include"
 	}
@@ -29,8 +29,8 @@ project "RadiantEngine"
 		"source/**.cpp",
 		"source/**.h",
 		"source/**.c",
-		"includes/**.h",
-		"includes/**.hpp"
+		"include/**.h",
+		"include/**.hpp"
 	}
 
 	defines{"NOMINMAX"}
