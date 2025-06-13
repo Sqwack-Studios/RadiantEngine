@@ -9,7 +9,7 @@
 #include <cmath>
 
 //Scalar implementation of common euclidean operations
-namespace RE::math
+namespace RE
 {
 	
 	/* API */
@@ -64,7 +64,9 @@ namespace RE::math
 		return { x, y, z };
 	}
 
-
+	RE_INLINE float2 normalize(const float2 a) { return a / lengthSq(a); }
+	RE_INLINE float3 normalize(const float3 a) { return a / lengthSq(a); }
+	RE_INLINE float4 normalize(const float4 a) { return a / lengthSq(a); }
 
 
 }

@@ -10,12 +10,8 @@
 #include "RadiantEngine/core/types.h"
 #include <cmath>
 
-namespace RE::math
+namespace RE
 {
-
-	
-
-
 
 	struct float2
 	{
@@ -23,33 +19,40 @@ namespace RE::math
 
 		RE_INLINE float2& operator+=(const float2 other) 
 		{
-			x += other.x;
-			y += other.y;
-
+			x += other.x; y += other.y;
 			return *this;
 		}
 
 		RE_INLINE float2& operator-= (const float2 other)
 		{
-			x -= other.x;
-			y -= other.y;
-
+			x -= other.x; y -= other.y;
 			return *this;
-		}
+		}	
 
 		RE_INLINE float2& operator*= (const float2 other) 
 		{
-			x *= other.x;
-			y *= other.y;
-
+			x *= other.x ;y *= other.y;
 			return *this;
 		}
 
-		RE_INLINE float2 operator/=(const float2 other)
+		RE_INLINE float2& operator*= (const fp32 s)
+		{
+			x *= s; y *= s;
+			return *this;
+		}
+
+		RE_INLINE float2& operator/=(const float2 other)
 		{
 			x /= other.x;
 			y /= other.y;
+			return *this;
+		}
 
+		RE_INLINE float2& operator/=(const fp32 s)
+		{
+			fp32 is{ 1.f / s };
+			x *= is;
+			y *= is;
 			return *this;
 		}
 	};
@@ -69,17 +72,71 @@ namespace RE::math
 	struct float3
 	{
 		fp32 x, y, z;
+
+
+		RE_INLINE float3& operator+= (const float3 other)
+		{
+			x += other.x; y += other.y; z += other.z;
+			return *this;
+		}
+
+		RE_INLINE float3& operator-= (const float3 other)
+		{
+			x -= other.x; y -= other.y; z -= other.z;
+			return *this;
+		}
+
+		RE_INLINE float3 operator*=(const float3 other)
+		{
+			x *= other.x; y *= other.y; z *= other.z;
+			return *this;
+		}
+
+		RE_INLINE float3& operator*=(const fp32 s)
+		{
+			x *= s; y *= s; z *= s;
+			return *this;
+		}
+
+		RE_INLINE float3& operator/=(const float3 other)
+		{
+			x /= other.x; y /= other.y; z /= other.z;
+			return *this;
+		}
+
+		RE_INLINE float3& operator/=(const fp32 s)
+		{
+			fp32 is{ 1.f / s };
+			x *= is; y *= is; z *= is;
+			return *this;
+		}
+
 	};
 
 	RE_INLINE float3 operator-(const float3 a) { return float3{ -a.x, -a.y, -a.z }; }
 	RE_INLINE float3 operator+(const float3 a, const float3 b) { return float3{a.x + b.x, a.y + b.y, a.z + b.z}; }
 	RE_INLINE float3 operator-(const float3 a, const float3 b) { return float3{a.x - b.x, a.y - b.y, a.z - b.z}; }
-	
+	RE_INLINE float3 operator*(const float3 a, const float3 b) { return float3{a.x * b.x, a.y * b.y, a.z * b.z}; }
+	RE_INLINE float3 operator*(const float3 v, const fp32 s) { return float3{ s * v.x, s * v.y, s * v.z }; }
+	RE_INLINE float3 operator*(const fp32 s, const float3 v) { return v * s; }
+	RE_INLINE float3 operator/(const float3 a, const float3 b) { return float3{ a.x / b.x, a.y / b.y, a.z / b.z }; }
+	RE_INLINE float3 operator/(const fp32 s, const float3 v) { return float3{ s / v.x, s / v.y, s / v.z }; }
+	RE_INLINE float3 operator/(const float3 v, const fp32 s) { fp32 is{ 1.f / s }; return is * v; }
 
 	struct float4
 	{
 		fp32 x, y, z, w;
 	};
+
+	RE_INLINE float4 operator-(const float4 a) { return float4{ -a.x, -a.y, -a.z, -a.w }; }
+	RE_INLINE float4 operator+(const float4 a, const float4 b) { return float4{ a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w }; }
+	RE_INLINE float4 operator-(const float4 a, const float4 b) { return float4{ a.x - b.x, a.y - b.y, a.z - b.z, a.w - b.w }; }
+	RE_INLINE float4 operator*(const float4 a, const float4 b) { return float4{ a.x * b.x, a.y * b.y, a.z * b.z, a.w * b.w }; }
+	RE_INLINE float4 operator*(const float4 v, const fp32 s) { return float4{ s * v.x, s * v.y, s * v.z, s * v.w }; }
+	RE_INLINE float4 operator*(const fp32 s, const float4 v) { return v * s; }
+	RE_INLINE float4 operator/(const float4 a, const float4 b) { return float4{ a.x / b.x, a.y / b.y, a.z / b.z, a.w / b.w }; }
+	RE_INLINE float4 operator/(const fp32 s, const float4 v) { return float4{ s / v.x, s / v.y, s / v.z, s / v.w }; }
+	RE_INLINE float4 operator/(const float4 v, const fp32 s) { fp32 is{ 1.f / s }; return is * v; }
 
 
 
