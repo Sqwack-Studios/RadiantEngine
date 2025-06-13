@@ -11,89 +11,63 @@
 #undef WIN32_LEAN_AND_MEAN
 #undef NOMINMAX
 
-#include "quill/Backend.h"
-#include "quill/Frontend.h"
-#include "quill/LogMacros.h"
-#include "quill/Logger.h"
-#include "quill/sinks/ConsoleSink.h"
-#include "quill/Frontend.h"
-#include "quill/backend/ThreadUtilities.h"
+#include "RadiantEngine/core/types.h"
+
+using namespace RE;
+
+static constexpr fp32 ASPECT_RATIO{ 16.f / 9.f};
+static constexpr int16 WINDOW_HEIGHT{ 1080 };
+static constexpr int16 WINDOW_WIDTH{ static_cast<int16>(WINDOW_HEIGHT * ASPECT_RATIO) };
+
+static HINSTANCE instance;
+
+static constexpr wchar_t WINDOW_NAME[]{ L"FedeGordo" };
 
 
-
-#include "quill/bundled/fmt/ostream.h"
-#include "quill/std/Array.h"
-#include "quill/std/Chrono.h"
-
-#include <iostream>
-#include <string>
-#include <utility>
-
-/**
- * Trivial logging example to console
- * Note: You can also pass STL types by including the relevant header files from quill/std/
- */
+//process messages from kernel
+LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+	switch (uMsg) {
+	case WM_DESTROY:
+		PostQuitMessage(0);
+		return 0;
+	}
+	return DefWindowProc(hwnd, uMsg, wParam, lParam);
+}
 
 
-int main()
+int main(int argc, char** argv)
 {
-    
-    quill::BackendOptions backend_options;
-    quill::Backend::start(backend_options);
 
-    // Frontend
-    auto console_sink = quill::Frontend::create_or_get_sink<quill::ConsoleSink>("sink_id_1");
+	HINSTANCE instance{ ::GetModuleHandle(NULL) };
 
-    quill::Logger* logger = quill::Frontend::create_or_get_logger("root", std::move(console_sink));
+	WNDCLASS windowclass{
+		.style = 0,
+		.lpfnWndProc = WndProc,
+		.cbClsExtra = 0,
+		.cbWndExtra = 0,
+		.hInstance = instance,
+		.hIcon = NULL,
+		.hCursor = NULL,
+		.hbrBackground = NULL,
+		.lpszClassName = WINDOW_NAME
+	};
+	
+	::RegisterClass(&windowclass);
 
-    // Change the LogLevel to print everything
-    logger->set_log_level(quill::LogLevel::TraceL3);
+	HWND hWnd{ ::CreateWindowExW(0, WINDOW_NAME, WINDOW_NAME, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, WINDOW_WIDTH, WINDOW_HEIGHT, NULL, NULL, instance, NULL) };
 
-    // A log message with number 123
-    int a = 123;
-    std::string l = "log";
-    QUILL_LOG_INFO(logger, "A {} message with number {}", l, a);
+	::ShowWindow(hWnd, SW_SHOW);
 
-    // libfmt formatting language is supported 3.14e+00
-    double pi = 3.141592653589793;
-    QUILL_LOG_INFO(logger, "libfmt formatting language is supported {:.2e}", pi);
+	MSG msg = { };
+	while (GetMessage(&msg, NULL, 0, 0) > 0)
+	{
+		TranslateMessage(&msg);
+		DispatchMessage(&msg);
+	}
 
-    // Logging STD types is supported [1, 2, 3]
-    std::array<int, 3> arr = { 1, 2, 3 };
-    QUILL_LOG_INFO(logger, "Logging STD types is supported {}", arr);
 
-    // Logging STD types is supported [arr: [1, 2, 3]]
-    QUILL_LOGV_INFO(logger, "Logging STD types is supported", arr);
-
-    // A message with two variables [a: 123, b: 3.17]
-    double b = 3.17;
-    QUILL_LOGV_NOTICE(logger, "A message with two variables", a, b);
-
-    for (uint32_t i = 0; i < 40; ++i)
-    {
-        // Will only log the message once per second
-        QUILL_LOG_INFO_LIMIT(std::chrono::seconds{ 1 }, logger, "A {} message with number {}", l, a);
-        QUILL_LOGV_INFO_LIMIT(std::chrono::seconds{ 1 }, logger, "A message with two variables", a, b);
-
-       if (i % 10 == 0)
-       {
-           std::this_thread::sleep_for(std::chrono::milliseconds{ (i / 10) * 500 });
-       }
-    }
-
-    for (uint32_t i = 0; i < 20; ++i)
-    {
-        // Will only log the message once per N occurrences second
-        QUILL_LOG_INFO_LIMIT_EVERY_N(10, logger, "Another {} message with occurrence {}", l, i);
-        QUILL_LOGV_INFO_LIMIT_EVERY_N(10, logger, "Another message with two variables", a, i);
-    }
+	return 0;
 }
 
 
 
-//int main(int argc, char** argv)
-//{
-//
-//
-//	return 0;
-//}
