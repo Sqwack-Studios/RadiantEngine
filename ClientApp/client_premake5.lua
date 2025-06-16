@@ -1,5 +1,5 @@
 project "ClientApp "
-    kind "ConsoleApp"
+    kind "WindowedApp"
     language "C++"
     cppdialect "C++20"
 
@@ -27,7 +27,9 @@ project "ClientApp "
 	links
 	{
 		--"RadiantEngine",
-		"quill"
+		"quill",
+		"dxgi",
+		"d3d12"
 	}
 
 		filter "system:windows"

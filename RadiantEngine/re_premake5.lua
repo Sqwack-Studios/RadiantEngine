@@ -11,7 +11,9 @@ project "RadiantEngine"
 	
 	links 
 	{
-		"quill"
+		"quill",
+		"dxgi",
+		"d3d12"
 	}
 
 
