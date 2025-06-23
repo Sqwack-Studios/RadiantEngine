@@ -29,7 +29,8 @@ project "ClientApp "
 		--"RadiantEngine",
 		"quill",
 		"dxgi",
-		"d3d12"
+		"d3d12",
+		"dxguid"
 	}
 
 		filter "system:windows"

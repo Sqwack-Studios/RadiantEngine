@@ -6,50 +6,60 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 
+//Windows stuff
 #include <Windows.h>
-#include <utility>
 #include <wrl.h>
 #include <dxgi1_6.h>
+#include <dxgidebug.h>
 #include <d3d12.h>
+
+
+//STD lib
+#include <utility>
 #include <execution>
-#include <shellapi.h> // For CommandLineToArgvW
+#include <iostream>
+#include <chrono>
+
 
 using namespace Microsoft::WRL;
 
 #undef WIN32_LEAN_AND_MEAN
 #undef NOMINMAX
 
+//Engine
 #include "RadiantEngine/core/types.h"
 #include "RadiantEngine/math/floatN.h"
 
 using namespace RE;
 
-static constexpr fp32 ASPECT_RATIO{ 16.f / 9.f};
-static constexpr int16 WINDOW_HEIGHT{ 1080 };
-static constexpr int16 WINDOW_WIDTH{ static_cast<int16>(WINDOW_HEIGHT * ASPECT_RATIO) };
+static constexpr fp32 ASPECT_RATIO{ 16.f / 9.f };
+static constexpr int16 INITIAL_HEIGHT{ 1080 };
+static constexpr int16 INITIAL_WIDTH{ static_cast<int16>(INITIAL_HEIGHT * ASPECT_RATIO) };
 static constexpr int8 NUM_FRAMES{ 3 };
 static constexpr wchar_t WINDOW_NAME[]{ L"FedeGordo" };
 
 
-ComPtr<IDXGIFactory4> dxgiFactory;
-ComPtr<IDXGISwapChain4> dxgiSwapChain;
-
-ComPtr<ID3D12Debug> d3dDebug;
-
-ComPtr<ID3D12Device2> d3d12Device;
-
-ComPtr<ID3D12Resource> d3dBackBuffers[NUM_FRAMES];
-ComPtr<ID3D12Fence> fence;
-uint64 currentFence;
-uint64 frameFenceValues[NUM_FRAMES];
-HANDLE fenceEvent;
+ComPtr<ID3D12Debug> debugLayer;
+ComPtr<IDXGIDebug1> dxgidebug;
+ComPtr<IDXGIFactory4> factory;
+ComPtr<IDXGIAdapter1> adapter;
+ComPtr<ID3D12Device> device;
+ComPtr<IDXGISwapChain3> swapChain;
+ComPtr<ID3D12CommandAllocator> commandAllocators[NUM_FRAMES];
+ComPtr<ID3D12Resource> backBuffers[NUM_FRAMES];
+ComPtr<ID3D12CommandQueue> directQueue;
+ComPtr<ID3D12GraphicsCommandList> directList;
+ComPtr<ID3D12Fence> directFence;
+uint64 frameDirectFenceValue[NUM_FRAMES];
+HANDLE directFenceEvent;
 
 uint8 currentFrame;
-uint32 rtvDescriptorHeapSize;
-ComPtr<ID3D12CommandQueue> d3dRenderCommandQueue;
-ComPtr<ID3D12GraphicsCommandList> d3dRenderCommandList;
-ComPtr<ID3D12CommandAllocator> d3dCommandAlloc[NUM_FRAMES];
-ComPtr<ID3D12DescriptorHeap> d3dDescriptorHeap;
+uint32 rtvDescriptorSize;
+bool isFullscreen{ false };
+RECT windowRect;
+
+ComPtr<ID3D12DescriptorHeap> rtvDescriptorHeap;
+
 
 constexpr float4 red{ 1.0f, 0.0f, 0.0f, 1.0f };
 constexpr float4 green{ 0.f, 1.0f, 0.0f, 1.0f };
@@ -58,113 +68,105 @@ constexpr float4 black{ 0.0f, 0.0f, 0.0f, 1.0f };
 
 float4 clearColors[NUM_FRAMES]{ red, green, blue };
 
-static void Update();// "game logic"
-static void Render();// "render thread, create commants, handle resource creations, fences, present, etc
 
-static void Flush(ID3D12CommandQueue*, ID3D12Fence*, uint64);
-static void WaitForFence(ID3D12Fence*, uint64);
+
+
 
 
 static void WaitForFence(ID3D12Fence* fence, uint64 valueToWaitFor)
 {
-	if (fence->GetCompletedValue() < valueToWaitFor)
+	uint64 fenceValue{ fence->GetCompletedValue() };
+	if (fenceValue < valueToWaitFor)
 	{
-		fence->SetEventOnCompletion(valueToWaitFor, fenceEvent);
-		::WaitForSingleObject(fenceEvent, 10000);
+		fence->SetEventOnCompletion(valueToWaitFor, directFenceEvent);
+		::WaitForSingleObjectEx(directFenceEvent, INFINITE, FALSE);
 	}
+
 }
-static void Flush(ID3D12CommandQueue* queue, ID3D12Fence* fence, uint64 fenceValue)
+
+static void Flush(ID3D12CommandQueue* queue, ID3D12Fence* fence, uint64& fenceValue)
 {
 	queue->Signal(fence, fenceValue);
+	fence->SetEventOnCompletion(fenceValue, directFenceEvent);
 	WaitForFence(fence, fenceValue);
+	++fenceValue;
 }
 
 
-static void Update()
+static void Update(fp64 dt)
 {
-	Sleep(1000);
-	return;
+
 }
 
-static void Render()
+static void Render(fp64 dt)
 {
-	// Cleanup command allocator and list for this frame to start recording
-	ComPtr<ID3D12CommandAllocator> commAlloc{ d3dCommandAlloc[currentFrame] };
-	//Get a reference to this frame back buffer to cleanup the RTV
-	ComPtr<ID3D12Resource> backBuffer{ d3dBackBuffers[currentFrame] };
-	
+	ID3D12CommandAllocator* frameAlloc{ commandAllocators[currentFrame].Get() };
+	ID3D12GraphicsCommandList* frameList{ directList.Get() };
+	ID3D12Resource* currentBackBuffer{ backBuffers[currentFrame].Get() };
 
-	commAlloc->Reset();
-	d3dRenderCommandList->Reset(commAlloc.Get(), NULL);
+	frameAlloc->Reset();
+	frameList->Reset(frameAlloc, nullptr);
+
+	//Clear the backbuffer
 
 	{
-		D3D12_RESOURCE_BARRIER barrier{
+		const D3D12_RESOURCE_BARRIER barrierDsc{
 			.Type = D3D12_RESOURCE_BARRIER_TYPE::D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
 			.Flags = D3D12_RESOURCE_BARRIER_FLAGS::D3D12_RESOURCE_BARRIER_FLAG_NONE,
 			.Transition = D3D12_RESOURCE_TRANSITION_BARRIER{
-				.pResource = backBuffer.Get(),
-				.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
-				.StateBefore = D3D12_RESOURCE_STATES::D3D12_RESOURCE_STATE_PRESENT,
-				.StateAfter = D3D12_RESOURCE_STATES::D3D12_RESOURCE_STATE_RENDER_TARGET
-			}
+							.pResource = currentBackBuffer,
+							.Subresource = 0,
+							.StateBefore = D3D12_RESOURCE_STATES::D3D12_RESOURCE_STATE_PRESENT,
+							.StateAfter = D3D12_RESOURCE_STATES::D3D12_RESOURCE_STATE_RENDER_TARGET}
 		};
-		//Transition resources from Present->RTV
-		d3dRenderCommandList->ResourceBarrier(1, &barrier);
-
+		frameList->ResourceBarrier(1, &barrierDsc);
 	}
-	//clear backbuffer
-	D3D12_CPU_DESCRIPTOR_HANDLE backBufferDescriptorHnd{ d3dDescriptorHeap->GetCPUDescriptorHandleForHeapStart() };
 
-	backBufferDescriptorHnd.ptr += currentFrame * rtvDescriptorHeapSize;
+	D3D12_CPU_DESCRIPTOR_HANDLE descriptorHandle{ rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart() };
+	descriptorHandle.ptr += rtvDescriptorSize * currentFrame;
 
-	d3dRenderCommandList->ClearRenderTargetView(backBufferDescriptorHnd, &clearColors[currentFrame].x, 0, nullptr);
+
+
+	frameList->ClearRenderTargetView(descriptorHandle, &clearColors[currentFrame].x, 0, nullptr);
 
 	{
-		D3D12_RESOURCE_BARRIER barrier{
+		const D3D12_RESOURCE_BARRIER barrierDsc{
 			.Type = D3D12_RESOURCE_BARRIER_TYPE::D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
 			.Flags = D3D12_RESOURCE_BARRIER_FLAGS::D3D12_RESOURCE_BARRIER_FLAG_NONE,
 			.Transition = D3D12_RESOURCE_TRANSITION_BARRIER{
-				.pResource = backBuffer.Get(),
-				.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
-				.StateBefore = D3D12_RESOURCE_STATES::D3D12_RESOURCE_STATE_RENDER_TARGET,
-				.StateAfter = D3D12_RESOURCE_STATES::D3D12_RESOURCE_STATE_PRESENT
-			}
+							.pResource = currentBackBuffer,
+							.Subresource = 0,
+							.StateBefore = D3D12_RESOURCE_STATES::D3D12_RESOURCE_STATE_RENDER_TARGET,
+							.StateAfter = D3D12_RESOURCE_STATES::D3D12_RESOURCE_STATE_PRESENT}
 		};
-
-		d3dRenderCommandList->ResourceBarrier(1, &barrier);
+		frameList->ResourceBarrier(1, &barrierDsc);
 	}
-	//Submit the list to the queue
-	d3dRenderCommandList->Close();
 
-	ID3D12CommandList* const commandLists[]{
-			d3dRenderCommandList.Get()
-	};
+	frameList->Close();
 
-	d3dRenderCommandQueue->ExecuteCommandLists(1, commandLists);
+	ID3D12CommandList* commandLists[]{ frameList };
+	directQueue->ExecuteCommandLists(1, commandLists);
 
+	swapChain->Present(0, DXGI_PRESENT_ALLOW_TEARING);
 
-	//Signal the fence
-	//We signal the fence value to +1 the current fence value
-	uint64 fenceToWaitFor{ ++currentFence };
-	frameFenceValues[currentFrame] = fenceToWaitFor;
-	d3dRenderCommandQueue->Signal(fence.Get(), fenceToWaitFor);
+	const uint64 currentFenceValue{ frameDirectFenceValue[currentFrame]};
+	directQueue->Signal(directFence.Get(), currentFenceValue);
 
-	dxgiSwapChain->Present(0, DXGI_PRESENT_ALLOW_TEARING);
-
-	//refresh current back buffer index
-	uint8 nextFrameIdx{ static_cast<uint8>(dxgiSwapChain->GetCurrentBackBufferIndex()) };
-	currentFrame = nextFrameIdx;
-
-	//Wait for fence
-	WaitForFence(fence.Get(), fenceToWaitFor);
-	
-
-
+	currentFrame = swapChain->GetCurrentBackBufferIndex();
+	WaitForFence(directFence.Get(), frameDirectFenceValue[currentFrame]++);
 
 
 
 
 }
+
+
+static void UpdateApp(fp64 dt)
+{
+	Update(dt);
+	Render(dt);
+}
+
 //process messages from kernel
 LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 
@@ -172,21 +174,49 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 
 	switch (uMsg)
 	{
-	case WM_PAINT:
-	{
-		Update();
-		Render();
-		break;
-	}
 	case WM_SIZE:
 	{
-		//RECT clientRect = {};
-		//::GetClientRect(g_hWnd, &clientRect);
-		//
-		//int width = clientRect.right - clientRect.left;
-		//int height = clientRect.bottom - clientRect.top;
+		RECT clientRect = {};
+		::GetClientRect(hwnd, &clientRect);
 
-		//Resize(width, height);
+		int width = static_cast<int>(std::max(1L, clientRect.right - clientRect.left));
+		int height = static_cast<int>(std::max(1L, clientRect.bottom - clientRect.top));
+
+		DXGI_SWAP_CHAIN_DESC1 dsc;
+		swapChain->GetDesc1(&dsc);
+
+		if (dsc.Width != width || dsc.Height != height)
+		{
+			std::cout << "Resize { " << width << ", " << height << " }\n";
+			//flush
+			uint64 fenceValue{ frameDirectFenceValue[currentFrame] };
+
+			Flush(directQueue.Get(), directFence.Get(), fenceValue);
+
+			//Reset all fences to the same value (basically scratch all frames and start over)
+			for (int32 i{}; i < NUM_FRAMES; ++i)
+			{
+				frameDirectFenceValue[i] = fenceValue;
+				backBuffers[i].Reset();
+			}
+
+			swapChain->ResizeBuffers(NUM_FRAMES, width, height, dsc.Format, dsc.Flags);
+
+			currentFrame = swapChain->GetCurrentBackBufferIndex();
+
+			//recreate the RTV
+
+			D3D12_CPU_DESCRIPTOR_HANDLE descriptorHandle{ rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart() };
+			for (int32 i{}; i < NUM_FRAMES; ++i)
+			{
+				swapChain->GetBuffer(i, IID_PPV_ARGS(&backBuffers[i]));
+				device->CreateRenderTargetView(backBuffers[i].Get(), nullptr, descriptorHandle);
+				descriptorHandle.ptr += rtvDescriptorSize;
+			}
+			
+		}
+
+		
 		break;
 	}
 	case WM_DESTROY:
@@ -194,332 +224,396 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 		::PostQuitMessage(0);
 		break;
 	}
+	case WM_KEYDOWN:
+	{
+		if (wParam == 0x46 && !(lParam >> 30)) //key F is pressed and was up before
+		{
+			isFullscreen = isFullscreen ^ 1; //toggle it
+
+			if (isFullscreen)
+			{
+				::GetWindowRect(hwnd, &windowRect);
+				//idk XD -> we already have the old state of the rect so we can restore later
+				UINT style{ WS_OVERLAPPEDWINDOW & ~(WS_CAPTION | WS_BORDER | WS_SYSMENU | WS_THICKFRAME | WS_MAXIMIZEBOX | WS_MINIMIZEBOX) };
+
+				::SetWindowLong(hwnd, GWL_STYLE, style);
+				HMONITOR hMonitor{ ::MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };
+				MONITORINFOEX monitorInfo{};
+				monitorInfo.cbSize = sizeof(MONITORINFOEX);
+				BOOL POLLAS{::GetMonitorInfo(hMonitor, &monitorInfo)};
+				::SetWindowPos(hwnd, HWND_TOP,
+					monitorInfo.rcMonitor.left,
+					monitorInfo.rcMonitor.top,
+					monitorInfo.rcMonitor.right - monitorInfo.rcMonitor.left,
+					monitorInfo.rcMonitor.bottom - monitorInfo.rcMonitor.top, 
+					SWP_FRAMECHANGED | SWP_NOACTIVATE);
+				::ShowWindow(hwnd, SW_MAXIMIZE);
+				
+			}
+			else {
+				//restore old state
+				::SetWindowLongW(hwnd, GWL_STYLE, WS_OVERLAPPEDWINDOW);
+				::SetWindowPos(hwnd, HWND_TOP,
+					windowRect.left,
+					windowRect.top,
+					windowRect.right - windowRect.left,
+					windowRect.bottom - windowRect.top,
+					SWP_FRAMECHANGED | SWP_NOACTIVATE);
+				::ShowWindow(hwnd, SW_NORMAL);
+
+			}
+		}
+	}break;
 	default:
 	{
 		return ::DefWindowProcW(hwnd, uMsg, wParam, lParam);
 	}
 	}
 
+
 	return 0;
 }
 
-
-
-
-
-
-static HRESULT queryAdapter(const int32 i, IDXGIAdapter1** adapter, IDXGIFactory6* const factory6)
-{
-	HRESULT result{ 0 };
-	if (factory6)
-	{
-		result = factory6->EnumAdapterByGpuPreference(i, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(adapter));
-	}
-	else
-	{
-		result = dxgiFactory->EnumAdapters1(i, adapter);
-	}
-
-	return result;
-}
 
 
 int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLine, int nCmdShow)
 {
 	//HINSTANCE instance{ ::GetModuleHandle(NULL) };
 
-	WNDCLASSEXW windowClass = {};
-	const wchar_t* windowClassName = L"DX12WindowClass";
-	windowClass.cbSize = sizeof(WNDCLASSEXW);
-	windowClass.style = CS_HREDRAW | CS_VREDRAW;
-	windowClass.lpfnWndProc = &WndProc;
-	windowClass.cbClsExtra = 0;
-	windowClass.cbWndExtra = 0;
-	windowClass.hInstance = hInstance;
-	windowClass.hIcon = ::LoadIcon(hInstance, NULL);
-	windowClass.hCursor = ::LoadCursor(NULL, IDC_ARROW);
-	windowClass.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-	windowClass.lpszMenuName = NULL;
-	windowClass.lpszClassName = windowClassName;
-	windowClass.hIconSm = ::LoadIcon(hInstance, NULL);
+	AllocConsole();
 
-	::RegisterClassExW(&windowClass);
+	// Redirect STDOUT to the console
+	FILE* fp;
+	freopen_s(&fp, "CONOUT$", "w", stdout);
+	freopen_s(&fp, "CONOUT$", "w", stderr);
+	freopen_s(&fp, "CONIN$", "r", stdin);
 
-	int screenWidth = ::GetSystemMetrics(SM_CXSCREEN);
-	int screenHeight = ::GetSystemMetrics(SM_CYSCREEN);
+	// Set std::cout and std::cin to use the console
+	std::ios::sync_with_stdio();
 
-	RECT windowRect = { 0, 0, static_cast<LONG>(WINDOW_WIDTH), static_cast<LONG>(WINDOW_HEIGHT) };
-	::AdjustWindowRect(&windowRect, WS_OVERLAPPEDWINDOW, FALSE);
-
-	int windowWidth = windowRect.right - windowRect.left;
-	int windowHeight = windowRect.bottom - windowRect.top;
-
-	int  windowX = std::max<int>(0, (screenWidth - windowWidth) / 2);
-	int windowY = std::max<int>(0, (screenHeight - windowHeight) / 2);
-
-	HWND hWnd = ::CreateWindowExW(
-		NULL,
-		windowClassName,
-		WINDOW_NAME,
-		WS_OVERLAPPEDWINDOW,
-		windowX,
-		windowY,
-		windowWidth,
-		windowHeight,
-		NULL,
-		NULL,
-		hInstance,
-		nullptr
-	);
-
-	//Initialize Debug layer
-	UINT factoryFlags{ DXGI_CREATE_FACTORY_DEBUG };
-	CreateDXGIFactory2(factoryFlags, IID_PPV_ARGS(&dxgiFactory));
-
-	D3D12GetDebugInterface(IID_PPV_ARGS(&d3dDebug));
-	d3dDebug->EnableDebugLayer();
+	// Optional: set console title
+	SetConsoleTitleW(L"Debug Console");
 
 	{
-		ComPtr<ID3D12Debug1> dbg1;
-		if (SUCCEEDED(d3dDebug.As(&dbg1)))
+		WNDCLASSEXW windowClass = {};
+		const wchar_t* windowClassName = L"DX12WindowClass";
+		windowClass.cbSize = sizeof(WNDCLASSEXW);
+		windowClass.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
+		windowClass.lpfnWndProc = &WndProc;
+		windowClass.cbClsExtra = 0;
+		windowClass.cbWndExtra = 0;
+		windowClass.hInstance = hInstance;
+		windowClass.hIcon = ::LoadIcon(hInstance, NULL);
+		windowClass.hCursor = ::LoadCursor(NULL, IDC_ARROW);
+		windowClass.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+		windowClass.lpszMenuName = NULL;
+		windowClass.lpszClassName = windowClassName;
+		windowClass.hIconSm = ::LoadIcon(hInstance, NULL);
+
+		::SetProcessDPIAware();
+		::RegisterClassExW(&windowClass);
+
+
+		int screenWidth = ::GetSystemMetrics(SM_CXSCREEN);
+		int screenHeight = ::GetSystemMetrics(SM_CYSCREEN);
+
+
+		//center it, please
+		int32 xPos{ std::max<int32>(1, (screenWidth - INITIAL_WIDTH) / 2) };
+		int32 yPos{ std::max<int32>(1, (screenHeight - INITIAL_HEIGHT) / 2) };
+
+		RECT myRect{ 0, 0, INITIAL_WIDTH, INITIAL_HEIGHT };
+
+		AdjustWindowRect(&myRect, WS_OVERLAPPEDWINDOW, FALSE);
+
+		HWND hWnd = ::CreateWindowExW(
+			NULL,
+			windowClassName,
+			WINDOW_NAME,
+			WS_OVERLAPPEDWINDOW,
+			xPos,
+			yPos,
+			myRect.right - myRect.left,
+			myRect.bottom - myRect.top,
+			NULL,
+			NULL,
+			hInstance,
+			nullptr
+		);
+
+		::windowRect = myRect;
+
+
+		ComPtr<ID3D12Debug> dbgLayer;
+
+		D3D12GetDebugInterface(IID_PPV_ARGS(&dbgLayer));
+
+		dbgLayer->EnableDebugLayer();
+
 		{
-			dbg1->SetEnableGPUBasedValidation(true);
-			dbg1->SetEnableSynchronizedCommandQueueValidation(true);
-		}
-	}
+			ComPtr<ID3D12Debug1> dbLayer1;
 
-	{
-		ComPtr<ID3D12Debug2> dbg2;
-		if (SUCCEEDED(d3dDebug.As(&dbg2)))
-		{
-			dbg2->SetGPUBasedValidationFlags(D3D12_GPU_BASED_VALIDATION_FLAGS_NONE);
-		}
-	}
+			dbgLayer.As(&dbLayer1);
 
-	{
-		ComPtr<ID3D12Debug4> dbg4;
-		if (SUCCEEDED(d3dDebug.As(&dbg4)))
-		{
-			//Not useful actually, only if we plan to "switch" the debug layer on the fly to improve performance on debug builds, but for that device removal must happen
-			//dbg4->DisableDebugLayer();
-		}
-	}
-
-	{
-		ComPtr<ID3D12Debug5> dbg5;
-		if (SUCCEEDED(d3dDebug.As(&dbg5)))
-		{
-			dbg5->SetEnableAutoName(true);
-		}
-	}
-
-
-
-	
-
-	ComPtr<IDXGIAdapter1> adapter1;
-	DXGI_ADAPTER_DESC1 adapterDesc;
-	{
-		ComPtr<IDXGIFactory6> factory6{ nullptr };
-		constexpr D3D_FEATURE_LEVEL desiredD3D12{ D3D_FEATURE_LEVEL_12_2 };
-
-		dxgiFactory.As(&factory6);
-
-		for (int32 i{}; queryAdapter(i, adapter1.ReleaseAndGetAddressOf(), factory6.Get()) != D3D12_ERROR_ADAPTER_NOT_FOUND; ++i)
-		{
-			adapter1->GetDesc1(&adapterDesc);
-
-			//discard software adapters
-
-			if (adapterDesc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)
-				continue;
-
-
-
-			if (SUCCEEDED(D3D12CreateDevice(adapter1.Get(), desiredD3D12, __uuidof(ID3D12Device2), nullptr)))
+			if (dbLayer1)
 			{
-				break;
+				dbLayer1->SetEnableGPUBasedValidation(TRUE);
+				dbLayer1->SetEnableSynchronizedCommandQueueValidation(TRUE);
+			}
+			if (SUCCEEDED(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&dxgidebug)))) {
+			}
+
+		}
+		{
+			ComPtr<ID3D12Debug2> dbLayer2;
+
+			dbgLayer.As(&dbLayer2);
+
+			if (dbLayer2)
+			{
+				dbLayer2->SetGPUBasedValidationFlags(D3D12_GPU_BASED_VALIDATION_FLAGS_NONE);
+			}
+		}
+		{
+			ComPtr<ID3D12Debug5> dbLayer5;
+
+			dbgLayer.As(&dbLayer5);
+
+			if (dbLayer5)
+			{
+				dbLayer5->SetEnableAutoName(TRUE);
 			}
 		}
 
-		HRESULT res{ D3D12CreateDevice(adapter1.Get(), desiredD3D12, IID_PPV_ARGS(&d3d12Device)) };
-	}
+		debugLayer = dbgLayer;
+
+		//Create adapter, then create device by finding suitable adapter. Check for a factory and if we have factory6 query by preference
+		ComPtr<IDXGIFactory4> dxgiFactory;
 
 
-	//Extract information of the GPU
-	// ...
-	// ...
-	//Extract extra information, I have no idea what is this for 
-	{
-		ComPtr<IDXGIAdapter2> adapter2;
-		if (SUCCEEDED(adapter1.As(&adapter2)))
+		CreateDXGIFactory2(DXGI_CREATE_FACTORY_DEBUG, IID_PPV_ARGS(&dxgiFactory));
+
+		ComPtr<IDXGIAdapter1> dxgiAdapter;
+		ComPtr<ID3D12Device> d3Device;
+		DXGI_ADAPTER_DESC1 adapterDesc;
+
 		{
-			DXGI_ADAPTER_DESC2 desc2;
-			adapter2->GetDesc2(&desc2);
+			//try to find factory6
+			ComPtr<IDXGIFactory6> dxgiFactory6;
+			dxgiFactory.As(&dxgiFactory6);
 
+
+			HRESULT cond{};
+			for (int32 i{}; ; ++i)
+			{
+				if (dxgiFactory6)
+				{
+					cond = dxgiFactory6->EnumAdapterByGpuPreference(i, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&dxgiAdapter));
+				}
+				else
+				{
+					cond = dxgiFactory->EnumAdapters1(i, dxgiAdapter.ReleaseAndGetAddressOf());
+				}
+
+				if (cond == D3D12_ERROR_ADAPTER_NOT_FOUND)
+					break;
+
+				dxgiAdapter->GetDesc1(&adapterDesc);
+
+				if (adapterDesc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)
+				{
+					continue;
+				}
+
+
+				//try to create the device... if success... blabla
+				if (SUCCEEDED(D3D12CreateDevice(dxgiAdapter.Get(), D3D_FEATURE_LEVEL_12_2, __uuidof(ID3D12Device), nullptr)))
+				{
+					break;
+				}
+			}
 		}
 
-		ComPtr<IDXGIAdapter4> adapter4;
-		if (SUCCEEDED(adapter1.As(&adapter4)))
+		D3D12CreateDevice(dxgiAdapter.Get(), D3D_FEATURE_LEVEL_12_2, IID_PPV_ARGS(&d3Device));
+
+		bool supportsVRR{ false };
+
 		{
-			DXGI_ADAPTER_DESC3 desc3;
-			adapter4->GetDesc3(&desc3);
+			ComPtr<IDXGIFactory5> dxgiFactory5;
+			dxgiFactory.As(&dxgiFactory5);
+			if (dxgiFactory5)
+			{
+				BOOL vrr;
+				dxgiFactory5->CheckFeatureSupport(DXGI_FEATURE::DXGI_FEATURE_PRESENT_ALLOW_TEARING, &vrr, sizeof(vrr));
 
+				supportsVRR = (vrr == TRUE);
+			}
 		}
-	}
 
-	{
-		ComPtr<ID3D12InfoQueue> infoQueue;
+		//Create the swap chain
+		DXGI_SWAP_CHAIN_DESC1 swapchainDsc{
+			.Width = INITIAL_WIDTH,
+			.Height = INITIAL_HEIGHT,
+			.Format = DXGI_FORMAT::DXGI_FORMAT_B8G8R8A8_UNORM,
+			.Stereo = FALSE,
+			.SampleDesc = DXGI_SAMPLE_DESC{.Count = 1, .Quality = 0},
+			.BufferCount = NUM_FRAMES,
+			.Scaling = DXGI_SCALING::DXGI_SCALING_STRETCH,
+			.SwapEffect = DXGI_SWAP_EFFECT::DXGI_SWAP_EFFECT_FLIP_DISCARD,
+			.AlphaMode = DXGI_ALPHA_MODE::DXGI_ALPHA_MODE_IGNORE,
+			.Flags = supportsVRR ? DXGI_SWAP_CHAIN_FLAG::DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0u
 
-		if (SUCCEEDED(d3d12Device.As(&infoQueue)))
+		};
+		//Command Queue
+		ComPtr<ID3D12CommandQueue> d3dCommandQueue;
+		D3D12_COMMAND_QUEUE_DESC commandQueueDsc{
+			.Type = D3D12_COMMAND_LIST_TYPE::D3D12_COMMAND_LIST_TYPE_DIRECT,
+			.Priority = D3D12_COMMAND_QUEUE_PRIORITY::D3D12_COMMAND_QUEUE_PRIORITY_NORMAL,
+			.Flags = D3D12_COMMAND_QUEUE_FLAGS::D3D12_COMMAND_QUEUE_FLAG_NONE,
+			.NodeMask = 0 };
+		d3Device->CreateCommandQueue(&commandQueueDsc, IID_PPV_ARGS(&d3dCommandQueue));
+
+		ComPtr<IDXGISwapChain1> dxgiSwapChain;
+		dxgiFactory->CreateSwapChainForHwnd(d3dCommandQueue.Get(), hWnd, &swapchainDsc, nullptr, nullptr, dxgiSwapChain.GetAddressOf());
+		dxgiFactory->MakeWindowAssociation(hWnd, DXGI_MWA_NO_ALT_ENTER);
+
+
+		ComPtr<IDXGISwapChain3> dxgiSwapChain3;
+		dxgiSwapChain.As(&dxgiSwapChain3);
+
+
+
+
+		//Command Allocator -> one foreach backbuffer
+
+		uint8 acurrentFrame{ static_cast<uint8>(dxgiSwapChain3->GetCurrentBackBufferIndex()) };//this is actually not needed and we can just index-wrap
+
+
+		ComPtr<ID3D12CommandAllocator> d3dAllocator[NUM_FRAMES];
+
+		for (int32 i{}; i < NUM_FRAMES; ++i)
 		{
-			infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, TRUE);
-			infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, TRUE);
-			infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, TRUE);
-
-			constexpr uint8 MAX_SEVERITIES{ 5 };
-			D3D12_MESSAGE_SEVERITY severities[MAX_SEVERITIES]{
-				D3D12_MESSAGE_SEVERITY_CORRUPTION,
-				D3D12_MESSAGE_SEVERITY_ERROR,
-				D3D12_MESSAGE_SEVERITY_MESSAGE,
-				D3D12_MESSAGE_SEVERITY_WARNING,
-				D3D12_MESSAGE_SEVERITY_INFO
-			};
-
-			// Suppress individual messages by their ID
-			D3D12_MESSAGE_ID deniedIds[] = {
-				D3D12_MESSAGE_ID_CLEARRENDERTARGETVIEW_MISMATCHINGCLEARVALUE,
-				D3D12_MESSAGE_ID_MAP_INVALID_NULLRANGE,
-				D3D12_MESSAGE_ID_UNMAP_INVALID_NULLRANGE,
-			};
-
-			D3D12_INFO_QUEUE_FILTER_DESC infoDesc{
-				.NumCategories = 0,
-				.pCategoryList = nullptr,
-				.NumSeverities = MAX_SEVERITIES,
-				.pSeverityList = severities,
-				.NumIDs = 0,
-				.pIDList = deniedIds,
-			};
-
-
+			d3Device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&d3dAllocator[i]));
 		}
-	}
 
 
+		//Command List
+		ComPtr<ID3D12GraphicsCommandList> d3dCommandList;
 
-	bool supportsVRR{ false }; //Variable Refresh Rate
-
-	ComPtr<IDXGIFactory5> dxgiFactory5;
-	if (SUCCEEDED(dxgiFactory.As(&dxgiFactory5)))
-	{
-		BOOL featureAvailable{ FALSE };
-		SUCCEEDED(dxgiFactory5->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &featureAvailable, sizeof(BOOL)));
-		supportsVRR = featureAvailable == TRUE;
-
-	}
-
-	D3D12_FEATURE_DATA_FORMAT_SUPPORT formatSupport = {
-	.Format = DXGI_FORMAT_B8G8R8A8_UNORM,
-	.Support1 = D3D12_FORMAT_SUPPORT1_DISPLAY
-	};
-
-	HRESULT cogno = d3d12Device->CheckFeatureSupport(
-		D3D12_FEATURE_FORMAT_SUPPORT, &formatSupport, sizeof(formatSupport));
+		d3Device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, d3dAllocator[currentFrame].Get(), nullptr, IID_PPV_ARGS(&d3dCommandList));
+		d3dCommandList->Close();
 
 
+		ComPtr<ID3D12Resource> d3dRes[NUM_FRAMES];
+		//Descriptor heap -> one foreach back buffer
+		//Resource -> one foreach backbuffer -> they are created by the swapchain
+		//we have to create the descriptor heap for the RTV, and then get the CPU descriptor handle to bind each
+		//RTV of each buffer to a slot of the descriptor heap
+		//Query the descriptor heap offset to know how much to move the pointers...
 
-	{
-		D3D12_COMMAND_QUEUE_DESC commandQDsc{
-		.Type = D3D12_COMMAND_LIST_TYPE_DIRECT,
-		.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL,
-		.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE,
-		.NodeMask = 0 /* only needed if we use more GPUs, this defines the adapter to target */
+		ComPtr<ID3D12DescriptorHeap> d3dDescriptorHeap;
+		D3D12_DESCRIPTOR_HEAP_DESC descriptorDsc{
+			.Type = D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_RTV,
+			.NumDescriptors = NUM_FRAMES,
+			.Flags = D3D12_DESCRIPTOR_HEAP_FLAGS::D3D12_DESCRIPTOR_HEAP_FLAG_NONE,
+			.NodeMask = 0
 		};
 
-		d3d12Device->CreateCommandQueue(&commandQDsc, IID_PPV_ARGS(&d3dRenderCommandQueue));
+		d3Device->CreateDescriptorHeap(&descriptorDsc, IID_PPV_ARGS(&d3dDescriptorHeap));
+
+		uint32 cpuHandleSize{ d3Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV) };
+
+		D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle{ d3dDescriptorHeap->GetCPUDescriptorHandleForHeapStart() };
+
+		for (int32 i{}; i < NUM_FRAMES; ++i)
+		{
+			dxgiSwapChain->GetBuffer(i, IID_PPV_ARGS(&d3dRes[i]));
+			d3Device->CreateRenderTargetView(d3dRes[i].Get(), nullptr, cpuHandle);
+			cpuHandle.ptr += cpuHandleSize;
+		}
+		//Fence -> one foreach queue
+
+		ComPtr<ID3D12Fence> d3dFence;
+
+		static constexpr int64 INITIAL_FENCE{ 0 };
+		d3Device->CreateFence(INITIAL_FENCE, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&d3dFence));
+
+
+
+		debugLayer = dbgLayer;
+		factory = dxgiFactory;
+		adapter = dxgiAdapter;
+		device = d3Device;
+		swapChain = dxgiSwapChain3;
+		directFence = d3dFence;
+		directList = d3dCommandList;
+		directQueue = d3dCommandQueue;
+		currentFrame = acurrentFrame;
+		rtvDescriptorSize = cpuHandleSize;
+		rtvDescriptorHeap = d3dDescriptorHeap;
+		directFenceEvent = ::CreateEventW(NULL, FALSE, FALSE, NULL);;
+
+
+		for (int32 i{}; i < NUM_FRAMES; ++i) {
+			commandAllocators[i] = d3dAllocator[i];
+			backBuffers[i] = d3dRes[i];
+			frameDirectFenceValue[i] = INITIAL_FENCE;
+		}
+		RECT polla;
+		::GetWindowRect(hWnd, &polla);
+		::ShowWindow(hWnd, SW_SHOW);
+		::GetWindowRect(hWnd, &polla);
 	}
-
-	{
-		//Create SwapChain
-
-		DXGI_SWAP_CHAIN_DESC1 swapChainDesc = {};
-		swapChainDesc.Width = WINDOW_WIDTH;
-		swapChainDesc.Height = WINDOW_HEIGHT;
-		swapChainDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-		swapChainDesc.Stereo = FALSE;
-		swapChainDesc.SampleDesc = { 1, 0 };
-		swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-		swapChainDesc.BufferCount = NUM_FRAMES;
-		swapChainDesc.Scaling = DXGI_SCALING_STRETCH;
-		swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
-		swapChainDesc.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
-		swapChainDesc.Flags = supportsVRR ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
-
-		ComPtr<IDXGISwapChain1> tmpSwapChain;
+	dxgidebug->ReportLiveObjects(DXGI_DEBUG_ALL, DXGI_DEBUG_RLO_IGNORE_INTERNAL);
 
 
-		HRESULT swapChainRes{ dxgiFactory->CreateSwapChainForHwnd(d3dRenderCommandQueue.Get(), hWnd, &swapChainDesc, NULL, NULL, tmpSwapChain.GetAddressOf()) };
-		tmpSwapChain.As(&dxgiSwapChain);
-		currentFrame = static_cast<uint8>(dxgiSwapChain->GetCurrentBackBufferIndex());
 
-	}
+	std::chrono::system_clock::time_point prevFrame{ std::chrono::system_clock::now()};
 
-
-	//Create the descriptor heap to hold swap chain's rtv
-	D3D12_DESCRIPTOR_HEAP_DESC descriptorHeapDesc{
-		.Type = D3D12_DESCRIPTOR_HEAP_TYPE::D3D12_DESCRIPTOR_HEAP_TYPE_RTV,
-		.NumDescriptors = NUM_FRAMES,
-		.NodeMask = 0
-	};
-
-	d3d12Device->CreateDescriptorHeap(&descriptorHeapDesc, IID_PPV_ARGS(&d3dDescriptorHeap));
-
-	rtvDescriptorHeapSize = d3d12Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-
-	D3D12_CPU_DESCRIPTOR_HANDLE cpuDescriptorHandle{ d3dDescriptorHeap->GetCPUDescriptorHandleForHeapStart() };
-
-
-	//now we create each RTV to each back buffer of the swap chain.
-	// With the handle, we get a pointer to each descriptor, so during RTV creation we pass the handle
-	// so the descriptor of the RTV is properly offset
-	for (int32 i{}; i < NUM_FRAMES; ++i)
-	{
-		ComPtr<ID3D12Resource> bufferRes;
-
-		dxgiSwapChain->GetBuffer(i, IID_PPV_ARGS(&bufferRes));
-
-		d3d12Device->CreateRenderTargetView(bufferRes.Get(), NULL /*Null to use the descriptor of the resource*/, cpuDescriptorHandle);
-		cpuDescriptorHandle.ptr += rtvDescriptorHeapSize; //ofset the handle for the next rtv creation
-		d3dBackBuffers[i] = bufferRes;
-	}
-
-
-	for (int32 i{}; i < NUM_FRAMES; ++i)
-	{
-		d3d12Device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&d3dCommandAlloc[i]));
-	}
-
-
-	d3d12Device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, d3dCommandAlloc[currentFrame].Get(), NULL, IID_PPV_ARGS(&d3dRenderCommandList));
-	d3dRenderCommandList->Close();
-
-
-	d3d12Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
-
-	::ShowWindow(hWnd, SW_SHOW);
+	static constexpr fp64 targetMs{ 1000. / 60. }; //120fps
 
 
 	MSG msg = { };
-	while (GetMessage(&msg, NULL, 0, 0) > 0)
+	bool running{ true };
+	while (running)
 	{
-		TranslateMessage(&msg);
-		DispatchMessage(&msg);
+		while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
+		{
+			TranslateMessage(&msg);
+			DispatchMessage(&msg);
+
+			if (msg.message == WM_QUIT)
+			{
+				running = false;
+				break;
+			}
+
+			
+		}
+		std::chrono::system_clock::time_point currentFrame{ std::chrono::system_clock::now() };
+		std::chrono::duration<fp64, std::milli> diff{ currentFrame - prevFrame };
+
+		fp64 delta{ diff.count() };
+		while (delta < targetMs)
+		{
+			std::this_thread::yield();
+			currentFrame = std::chrono::system_clock::now();
+			diff = currentFrame - prevFrame;
+			delta = diff.count();
+		}
+
+		prevFrame = currentFrame;
+
+		//std::cout << delta << "\n";
+
+		UpdateApp(delta);
 	}
+	
 
-	Flush(d3dRenderCommandQueue.Get(), fence.Get(), ++currentFence);
 
-	::CloseHandle(fenceEvent);
+	Flush(directQueue.Get(), directFence.Get(), frameDirectFenceValue[currentFrame]);
+	::CloseHandle(directFenceEvent);
+
 
 	return 0;
 }
