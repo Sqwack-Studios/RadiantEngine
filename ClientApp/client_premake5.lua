@@ -12,6 +12,7 @@ project "ClientApp "
     includedirs
 	{
 		"../RadiantEngine/include",
+		"../RadiantEngine/shaders",
 		"../vendor/quill/include"
 	}
 

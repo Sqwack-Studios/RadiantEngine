@@ -21,7 +21,8 @@ project "RadiantEngine"
 	{
 		"include",
 		"source",
-		"../vendor/quill/include"
+		"../vendor/quill/include",
+		
 	}
 
 
@@ -32,8 +33,15 @@ project "RadiantEngine"
 		"source/**.h",
 		"source/**.c",
 		"include/**.h",
-		"include/**.hpp"
+		"include/**.hpp",
+		"shaders/**.hlsl",
+		"shaders/**.hlsli"
 	}
+
+	filter { "files:shaders/**.hlsl" }
+        buildaction "None"
+	filter { "files:shaders/**.hlsli" }
+        buildaction "None"
 
 	defines{"NOMINMAX"}
 

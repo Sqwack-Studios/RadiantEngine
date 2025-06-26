@@ -240,7 +240,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 				HMONITOR hMonitor{ ::MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };
 				MONITORINFOEX monitorInfo{};
 				monitorInfo.cbSize = sizeof(MONITORINFOEX);
-				BOOL POLLAS{::GetMonitorInfo(hMonitor, &monitorInfo)};
+				::GetMonitorInfo(hMonitor, &monitorInfo);
 				::SetWindowPos(hwnd, HWND_TOP,
 					monitorInfo.rcMonitor.left,
 					monitorInfo.rcMonitor.top,
@@ -559,10 +559,7 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdL
 			backBuffers[i] = d3dRes[i];
 			frameDirectFenceValue[i] = INITIAL_FENCE;
 		}
-		RECT polla;
-		::GetWindowRect(hWnd, &polla);
 		::ShowWindow(hWnd, SW_SHOW);
-		::GetWindowRect(hWnd, &polla);
 	}
 	dxgidebug->ReportLiveObjects(DXGI_DEBUG_ALL, DXGI_DEBUG_RLO_IGNORE_INTERNAL);
 
@@ -577,10 +574,10 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdL
 	bool running{ true };
 	while (running)
 	{
-		while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
+		while (::PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
 		{
-			TranslateMessage(&msg);
-			DispatchMessage(&msg);
+			::TranslateMessage(&msg);
+			::DispatchMessage(&msg);
 
 			if (msg.message == WM_QUIT)
 			{
@@ -604,7 +601,7 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdL
 
 		prevFrame = currentFrame;
 
-		//std::cout << delta << "\n";
+		//std::cout << come mierdas << "\n";
 
 		UpdateApp(delta);
 	}
