@@ -3,8 +3,11 @@
 ##
 ## Get latest from https://github.com/github/gitignore/blob/main/VisualStudio.gitignore
 
-bin/
-bin-int/
+/bin/
+/bin-int/
+
+!vendor/dxc/bin/
+
 *.TGA
 *.vcxproj
 *.vcxproj.user
