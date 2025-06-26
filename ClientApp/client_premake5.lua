@@ -13,7 +13,8 @@ project "ClientApp "
 	{
 		"../RadiantEngine/include",
 		"../RadiantEngine/shaders",
-		"../vendor/quill/include"
+		"../vendor/quill/include",
+		"../vendor/D3D12MemoryAllocator/include"
 	}
 
 
@@ -21,7 +22,8 @@ project "ClientApp "
 	{
 		"source/**.cpp",
 		"../RadiantEngine/include/**.hpp",
-		"../RadiantEngine/include/**.h"
+		"../RadiantEngine/include/**.h",
+		"../vendor/D3D12MemoryAllocator/src/D3D12MemAlloc.cpp"
 	}
 
 
@@ -31,7 +33,9 @@ project "ClientApp "
 		"quill",
 		"dxgi",
 		"d3d12",
-		"dxguid"
+		"dxguid",
+		"../vendor/dxc/bin/dxil.dll",
+		"../vendor/dxc/bin/dxcompiler.dll"
 	}
 
 		filter "system:windows"

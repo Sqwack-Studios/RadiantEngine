@@ -1,3 +1,6 @@
 [submodule "vendor/quill"]
 	path = vendor/quill
 	url = git@github.com:Sqwack-Studios/quill.git
+[submodule "vendor/D3D12MemoryAllocator"]
+	path = vendor/D3D12MemoryAllocator
+	url = https://github.com/GPUOpen-LibrariesAndSDKs/D3D12MemoryAllocator.git

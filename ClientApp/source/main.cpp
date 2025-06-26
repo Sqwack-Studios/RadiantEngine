@@ -12,6 +12,7 @@
 #include <dxgi1_6.h>
 #include <dxgidebug.h>
 #include <d3d12.h>
+#include <d3dcompiler.h>
 
 
 //STD lib
@@ -50,6 +51,10 @@ ComPtr<ID3D12Resource> backBuffers[NUM_FRAMES];
 ComPtr<ID3D12CommandQueue> directQueue;
 ComPtr<ID3D12GraphicsCommandList> directList;
 ComPtr<ID3D12Fence> directFence;
+ComPtr<ID3D12RootSignature> rootSignature;
+ComPtr<ID3DBlob> vs;
+ComPtr<ID3DBlob> ps;
+
 uint64 frameDirectFenceValue[NUM_FRAMES];
 HANDLE directFenceEvent;
 
@@ -559,6 +564,28 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdL
 			backBuffers[i] = d3dRes[i];
 			frameDirectFenceValue[i] = INITIAL_FENCE;
 		}
+
+
+		//Create root signature
+		//Serialize root signature (?)
+		//PSO
+		//Compile shaders
+		//Create vertices
+		//Push to the gpu with a memcpy
+		//flush it
+		D3D12_ROOT_SIGNATURE_DESC rootSignatureDsc
+		{
+			.NumParameters = 0,
+			.pParameters = nullptr,
+			.NumStaticSamplers = 0,
+			.pStaticSamplers = nullptr,
+			.Flags = D3D12_ROOT_SIGNATURE_FLAGS::D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT
+		};
+		
+
+
+
+
 		::ShowWindow(hWnd, SW_SHOW);
 	}
 	dxgidebug->ReportLiveObjects(DXGI_DEBUG_ALL, DXGI_DEBUG_RLO_IGNORE_INTERNAL);
