@@ -33,9 +33,7 @@ project "ClientApp "
 		"quill",
 		"dxgi",
 		"d3d12",
-		"dxguid",
-		"../vendor/dxc/bin/dxil.dll",
-		"../vendor/dxc/bin/dxcompiler.dll"
+		"dxguid"
 	}
 
 		filter "system:windows"
