@@ -29,6 +29,6 @@ workspace "RenderingEngine"
 
 
 	include "RadiantEngine/re_premake5.lua"
-
+	include "ShaderCompiler/shadercompiler_premake5.lua"
 	include "ClientApp/client_premake5.lua"
 
