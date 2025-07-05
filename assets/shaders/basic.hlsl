@@ -3,8 +3,8 @@
 
 struct VSin
 {
-    float3 pos;
-    float3 color;
+    float3 pos : POSITION;
+    float3 color : COLOR;
 };
 
 struct VSOut
