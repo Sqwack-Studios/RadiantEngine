@@ -14,6 +14,8 @@
 
 #include <cstdint>
 #include <fstream>
+#include <string_view>
+#include <iostream>
 
 #include "quill/Frontend.h"
 #include "quill/Backend.h"
@@ -25,15 +27,131 @@ using namespace Microsoft::WRL;
 //TODO: HRESULTS + logging
 //TODO: D3D12 Calls + logging 
 
+enum eShaderType : std::uint8_t {
+	Vertex = 0,
+	Hull,
+	Domain,
+	Geometry,
+	Pixel,
+	Compute,
+	Mesh,
+	NUM
+};
 
+
+static constexpr char shaderFolderPath[]{ "../../../assets/shaders" };
+
+struct shaderEntry
+{
+	char path[63]; // the path is relative to the shaders folder.
+	char entryPoint[32];
+	eShaderType type;
+};
+
+static shaderEntry entries[]{
+	shaderEntry{ .path = "basic.hlsl", .entryPoint = "VSMain", .type = eShaderType::Vertex},
+	shaderEntry{ .path = "basic.hlsl", .entryPoint = "PSMain", .type = eShaderType::Pixel},
+	shaderEntry{ .path = "pollaycojones/basicDentro.hlsl", .entryPoint = "VSMain", .type = eShaderType::Vertex }
+};
+
+// Arguments:
+/*
+* -F     Output folder where all files will be saved. If a file is contained in a subfolder, then it will be written into -F + /path/to/subfolder/shader.bin
+* -D     An array of defines that will be globally setup ( -D DEFINE1=a DEFINE2=b DEFINE3=c ...)
+* -Od    Pass this to disable optimizations
+* -Zs    Enable debug information. This will generate extra .pdb files
+*/
 int main(int argc, char* argv[])
 {
+	quill::PatternFormatterOptions loggerPattern{
+		std::string{ "%(time) [%(thread_id)] %(log_level) "
+					"%(message) "},
+		std::string{"%H:%M:%S.%Qms"},
+		quill::Timezone::LocalTime,
+		false
+	};
+
+	quill::ConsoleSinkConfig::Colours sinkColours{};
+
+	sinkColours.apply_default_colours();
+
+	sinkColours.assign_colour_to_log_level(quill::LogLevel::TraceL3, quill::ConsoleSinkConfig::Colours::white);
+	sinkColours.assign_colour_to_log_level(quill::LogLevel::TraceL2, quill::ConsoleSinkConfig::Colours::white);
+	sinkColours.assign_colour_to_log_level(quill::LogLevel::TraceL1, quill::ConsoleSinkConfig::Colours::white);
+	sinkColours.assign_colour_to_log_level(quill::LogLevel::Debug, quill::ConsoleSinkConfig::Colours::green);
+	sinkColours.assign_colour_to_log_level(quill::LogLevel::Info, quill::ConsoleSinkConfig::Colours::cyan);
+
+	quill::ConsoleSinkConfig csinkConfig{};
+	csinkConfig.set_colours(sinkColours);
+	
 
 	quill::Backend::start();
 	quill::Logger* logger = quill::Frontend::create_or_get_logger(
-		"root", quill::Frontend::create_or_get_sink<quill::ConsoleSink>("sink_id_1"));
+		"root", quill::Frontend::create_or_get_sink<quill::ConsoleSink>("sink_id_1", csinkConfig), loggerPattern);
 
-	LOG_INFO(logger, "Hello from {}!", "Quill");
+	
+	LOG_INFO(logger, "Welcome to the offline compiler!\nAvailable commands:\n"
+		"-F : Output folder where all files will be saved. If a file is contained in a subfolder, then it will be written into -F + /path/to/subfolder/shadername.bin\n"
+		"-D : An array of defines that will be globally setup ( -D DEFINE1=a DEFINE2=b DEFINE3=c ...)\n"
+		"-Od : Pass this to disable optimizations\n"
+		"-Zs : Enable debug information. This will generate extra .pdb files\n");
+
+	enum compileFlags : std::uint8_t {
+		F  = 0x1,
+		D  = 0x2,
+		Od = 0x4,
+		Zs = 0x8
+	};
+
+	static constexpr std::int32_t PATH_MAX_BUFFER{ 64 };
+	static constexpr std::int32_t MAX_DEFINES{ 32 };
+	static constexpr std::int32_t DEFINES_MAX_BUFFER{ 64 };
+
+	char outputFolder[PATH_MAX_BUFFER];
+	char defines[MAX_DEFINES][DEFINES_MAX_BUFFER];
+	std::int32_t numDefines{};
+	std::uint8_t flags{};
+
+	//parse arguments
+	for (std::int32_t i{1}; i < argc; ++i)
+	{
+		std::string_view arg{ argv[i] };
+		
+		//-F command has been found. Next string should be a path.
+		if (arg.compare("-F") == 0)//equal
+		{
+			//verify we don't run out of bounds
+
+			char ignoreMsg[]{ "command was issued but no folder was provided! Ignoring" };
+			
+			arg = ((i + 1) >= argc) || (argv[i + 1] == "-") ? ignoreMsg : argv[++i];
+			
+
+			std::int32_t bytesToCopy{ static_cast<int32_t>(arg.size()) > (PATH_MAX_BUFFER - 1) ? PATH_MAX_BUFFER - 1 : static_cast<int32_t>(arg.size()) };
+
+			memcpy(outputFolder, arg.data(), bytesToCopy);
+			outputFolder[bytesToCopy] = '\0';
+			LOG_INFO(logger, "-F {}", outputFolder);
+
+			continue;
+		}
+
+		////-D command has been found. Next arguments will be the defines until a new command is found or we reach the end.
+		//if (arg.compare("-D") == 0)
+		//{
+		//	std::string_view def{ argv[++i] };
+		//
+		//}
+		//
+		//if (arg.compare("-Od"))
+		//	flags |= compileFlags::Od;
+		//
+		//
+		//if (arg.compare("-Zs"))
+		//	flags |= compileFlags::Zs;
+	}
+
+
 	
 	HINSTANCE dxcLibModule{ LoadLibrary(L"../../../vendor/dxc/bin/dxcompiler.dll") };
 
@@ -43,30 +161,29 @@ int main(int argc, char* argv[])
 		return 0;
 	}
 
-	DxcCreateInstanceProc DxcCreateInstance{ (DxcCreateInstanceProc)GetProcAddress(dxcLibModule, "DxcCreateInstance") };
-
-	ComPtr<IDxcCompiler3> dxCompiler;
-	DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&dxCompiler));
-	
-	std::ifstream file{ "../../../assets/shaders/basic.hlsl",std::ios::binary | std::ios::ate | std::ios::in };
-	static char shaderBlob[81920]; //4KB
-	if (!file.is_open())
-	{
-		LOG_CRITICAL(logger, "File ../../../assets/shaders/basic.hlsl couldn't be opened");
-		return 0;
-	}
-	std::uint32_t size{ static_cast<std::uint32_t>(file.tellg()) };
-
-	file.seekg(0, std::ios::beg);
-	file.read(shaderBlob, size);
-	file.close();
-
-	const DxcBuffer dxcBuff{
-		.Ptr = shaderBlob,
-		.Size = size,
-		.Encoding = DXC_CP_ACP
-	};
-
+	//DxcCreateInstanceProc DxcCreateInstance{ (DxcCreateInstanceProc)GetProcAddress(dxcLibModule, "DxcCreateInstance") };
+	//
+	//ComPtr<IDxcCompiler3> dxCompiler;
+	//DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&dxCompiler));
+	//
+	//std::ifstream file{ "../../../assets/shaders/basic.hlsl",std::ios::binary | std::ios::ate | std::ios::in };
+	//static char shaderBlob[81920]; //4KB
+	//if (!file.is_open())
+	//{
+	//	LOG_CRITICAL(logger, "File ../../../assets/shaders/basic.hlsl couldn't be opened");
+	//	return 0;
+	//}
+	//std::uint32_t size{ static_cast<std::uint32_t>(file.tellg()) };
+	//
+	//file.seekg(0, std::ios::beg);
+	//file.read(shaderBlob, size);
+	//file.close();
+	//
+	//const DxcBuffer dxcBuff{
+	//	.Ptr = shaderBlob,
+	//	.Size = size,
+	//	.Encoding = DXC_CP_UTF8
+	//};
 	
 	/*
 	L"basic.hlsl",							    // Optional shader source file name for error reporting and for PIX shader source view.
@@ -89,63 +206,74 @@ int main(int argc, char* argv[])
 	LPCWSTR pszArgs[] =
 	{
 		//L"basic.hlsl",							    // Optional shader source file name for error reporting and for PIX shader source view.  
-		L"-E", L"VSMain",							// Entry point.
-		L"-T", L"vs_6_7",							// Target.
-		//L"-Zs",									// Enable debug information (slim format)
+		L"-E", L"CSMain",							// Entry point.
+		L"-T", L"cs_6_7",							// Target.
+		L"-Zs",									// Enable debug information (slim format)
 		//L"-Zi",
 		//L"-Zpc",									//Pack matrices in column - major order.
 		//L"-Zpr",									//Pack matrices in row - major order.
 		//L"-Od",
 		//L"-D", L"MYDEFINE=1",						// A single define...
 		L"-Fo", L"../../../bin/basic.bin",     // Optional. Stored in the pdb. 
-		//L"-Fd", L"../../../bin/basic.pdb",     // The file name of the pdb. This must either be supplied or the autogenerated file name must be used.
+		L"-Fd", L"../../../bin/basic.pdb",     // The file name of the pdb. This must either be supplied or the autogenerated file name must be used.
 		L"-Qstrip_debug",
 		L"-Qstrip_priv",
 		L"-Qstrip_reflect",          // Strip reflection into a separate blob. 
 		L"-Qstrip_rootsignature"
 	};
-	ComPtr<IDxcResult> compileResult;
-
-	dxCompiler->Compile(&dxcBuff, pszArgs, _countof(pszArgs), nullptr, IID_PPV_ARGS(&compileResult));
-
-	HRESULT hrStatus;
+	//ComPtr<IDxcResult> compileResult;
+	//
+	//dxCompiler->Compile(&dxcBuff, pszArgs, _countof(pszArgs), nullptr, IID_PPV_ARGS(&compileResult));
+	//
+	//HRESULT hrStatus;
 	
 
 
-	ComPtr<IDxcBlob> pShader = nullptr;
-	ComPtr<IDxcBlobUtf16> pShaderName = nullptr;
-	compileResult->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&pShader), &pShaderName);
-
-	ComPtr<IDxcBlobUtf8> pErrors = nullptr;
-	compileResult->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&pErrors), nullptr);
-
-	auto webo{ pErrors->GetStringPointer() };
-	auto webo2{ pShaderName->GetStringPointer() };
-	// Note that d3dcompiler would return null if no errors or warnings are present.
-	// IDxcCompiler3::Compile will always return an error buffer, but its length
-	// will be zero if there are no warnings or errors.
-	if (pErrors != nullptr && pErrors->GetStringLength() != 0)
-		LOG_INFO(logger, "Compiling errors: {}", webo);
-
-
-	compileResult->GetStatus(&hrStatus);
-	if (FAILED(hrStatus))
-	{
-		LOG_CRITICAL(logger, "Compilation Failed\n");
-		return 0;
-	}
-	
-	if (pShader != nullptr)
-	{
-		FILE* fp = NULL;
-	
-		_wfopen_s(&fp, pShaderName->GetStringPointer(), L"wb");
-		fwrite(pShader->GetBufferPointer(), pShader->GetBufferSize(), 1, fp);
-		fclose(fp);
-	
-	}
-
-
+	//ComPtr<IDxcBlob> pShader = nullptr;
+	//ComPtr<IDxcBlobUtf16> pShaderName = nullptr;
+	//compileResult->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&pShader), &pShaderName);
+	//
+	//ComPtr<IDxcBlobUtf8> pErrors = nullptr;
+	//compileResult->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&pErrors), nullptr);
+	//
+	//auto webo{ pErrors->GetStringPointer() };
+	//auto webo2{ pShaderName->GetStringPointer() };
+	//// Note that d3dcompiler would return null if no errors or warnings are present.
+	//// IDxcCompiler3::Compile will always return an error buffer, but its length
+	//// will be zero if there are no warnings or errors.
+	//if (pErrors != nullptr && pErrors->GetStringLength() != 0)
+	//	LOG_INFO(logger, "Compiling errors: {}", webo);
+	//
+	//
+	//compileResult->GetStatus(&hrStatus);
+	//if (FAILED(hrStatus))
+	//{
+	//	LOG_CRITICAL(logger, "Compilation Failed\n");
+	//	return 0;
+	//}
+	//
+	//ComPtr<IDxcBlob> pPDB = nullptr;
+	//ComPtr<IDxcBlobUtf16> pPDBName = nullptr;
+	//compileResult->GetOutput(DXC_OUT_PDB, IID_PPV_ARGS(&pPDB), &pPDBName);
+	//{
+	//	FILE* fp = NULL;
+	//
+	//	// Note that if you don't specify -Fd, a pdb name will be automatically generated.
+	//	// Use this file name to save the pdb so that PIX can find it quickly.
+	//	_wfopen_s(&fp, pPDBName->GetStringPointer(), L"wb");
+	//	fwrite(pPDB->GetBufferPointer(), pPDB->GetBufferSize(), 1, fp);
+	//	fclose(fp);
+	//}
+	//if (pShader != nullptr)
+	//{
+	//	FILE* fp = NULL;
+	//
+	//	_wfopen_s(&fp, pShaderName->GetStringPointer(), L"wb");
+	//	fwrite(pShader->GetBufferPointer(), pShader->GetBufferSize(), 1, fp);
+	//	fclose(fp);
+	//
+	//}
+	FreeLibrary(dxcLibModule);
 	return 0;
 }
 
