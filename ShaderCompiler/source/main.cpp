@@ -133,22 +133,63 @@ int main(int argc, char* argv[])
 			outputFolder[bytesToCopy] = '\0';
 			LOG_INFO(logger, "-F {}", outputFolder);
 
+			flags |= compileFlags::F;
+
 			continue;
 		}
 
-		////-D command has been found. Next arguments will be the defines until a new command is found or we reach the end.
-		//if (arg.compare("-D") == 0)
-		//{
-		//	std::string_view def{ argv[++i] };
-		//
-		//}
-		//
-		//if (arg.compare("-Od"))
-		//	flags |= compileFlags::Od;
-		//
-		//
-		//if (arg.compare("-Zs"))
-		//	flags |= compileFlags::Zs;
+		//-D command has been found. Next arguments will be the defines until a new command is found or we reach the end.
+		if (arg.compare("-D") == 0)
+		{
+		
+			std::int32_t lastDefineIdx{ ++i };
+
+			while (lastDefineIdx < argc && argv[lastDefineIdx][0] != '-') { //count how many defines we got; either we reach the end or we find another command
+				++lastDefineIdx;
+			}
+			
+
+
+			if (lastDefineIdx == argc || (lastDefineIdx - i) == 0)
+			{
+
+				LOG_INFO(logger, "-D command was issued but no defines were provided. Ignoring...");
+				continue;
+			}
+
+			for (std::int32_t j{i}; j < lastDefineIdx; ++j)
+			{
+				std::string_view arg{ argv[j] };
+				
+				std::int32_t defineLength{ static_cast<int32_t>(arg.size()) };
+
+				const bool overflows{ defineLength > (DEFINES_MAX_BUFFER - 1) };
+
+				if (overflows)
+				{
+					LOG_INFO(logger, "{} is too long, the DEFINE limit size is {} characters accounting for the null terminator. Ignoring...", arg, DEFINES_MAX_BUFFER);
+					continue;
+				}
+
+				LOG_INFO(logger, "{} registered as a global define", arg);
+				memcpy(defines[numDefines], arg.data(), defineLength);
+				outputFolder[defineLength] = '\0';
+				++numDefines;
+
+			}
+
+			i += numDefines - 1; //we do this bc next iteration will add +1 to the i. I'm not sure this is the right approach to parse command lines
+			flags |= compileFlags::D;
+
+		}
+
+
+		if (arg.compare("-Od"))
+			flags |= compileFlags::Od;
+		
+		
+		if (arg.compare("-Zs"))
+			flags |= compileFlags::Zs;
 	}
 
 
