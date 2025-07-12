@@ -27,6 +27,22 @@ using namespace Microsoft::WRL;
 //TODO: HRESULTS + logging
 //TODO: D3D12 Calls + logging 
 
+template<typename T, int32_t N>
+struct StackArray
+{
+	T Data[N];
+	int32_t Num;
+
+	static constexpr int32_t Capacity() { return N; }
+};
+
+template<size_t N>
+using LocalString = StackArray<char, N>;
+
+template<size_t N>
+using WLocalString = StackArray<wchar_t, N>;
+
+
 enum eShaderType : std::uint8_t {
 	Vertex = 0,
 	Hull,
@@ -38,21 +54,76 @@ enum eShaderType : std::uint8_t {
 	NUM
 };
 
+//vs, ps, ds, hs, gs, cs, ms, lib; 6_0 - 6_7
+static constexpr const wchar_t* ShaderTypeToString(eShaderType type)
+{
+	const wchar_t* ret{L"Unknown shader type"};
 
-static constexpr char shaderFolderPath[]{ "../../../assets/shaders" };
+	switch (type)
+	{
+	case Vertex:
+	{
+		ret = L"vs_6_7";
+		break;
+	}
+	case Hull:
+	{
+		ret = L"hs_6_7";
+		break;
+	}
+	case Domain:
+	{
+		ret = L"ds_6_7";
+		break;
+	}
+	case Geometry:
+	{
+		ret = L"gs_6_7";
+		break;
+	}
+	case Pixel:
+	{
+		ret = L"ps_6_7";
+		break;
+	}
+	case Compute:
+	{
+		ret = L"cs_6_7";
+		break;
+	}
+	case Mesh:
+	{
+		ret = L"ms_6_7";
+		break;
+	}
+	default:
+		break;
+	}
+
+	return ret;
+}
+
+static constexpr wchar_t shaderFolderPath[]{ L"../../../assets/shaders" };
+
+static constexpr std::int32_t PATH_MAX_BUFFER{ 64 };
+static constexpr std::int32_t MAX_DEFINES{ 32 };
+static constexpr std::int32_t DEFINES_MAX_BUFFER{ 64 };
+static constexpr std::int32_t ENTRY_POINT_MAX_BUFFER{ 31 };
 
 struct shaderEntry
 {
-	char path[63]; // the path is relative to the shaders folder.
-	char entryPoint[32];
+	char path[PATH_MAX_BUFFER]; // the path is relative to the source code assets/shaders folder.
+	char entryPoint[ENTRY_POINT_MAX_BUFFER];
 	eShaderType type;
 };
 
-static shaderEntry entries[]{
+static constexpr shaderEntry entries[]{
 	shaderEntry{ .path = "basic.hlsl", .entryPoint = "VSMain", .type = eShaderType::Vertex},
 	shaderEntry{ .path = "basic.hlsl", .entryPoint = "PSMain", .type = eShaderType::Pixel},
 	shaderEntry{ .path = "pollaycojones/basicDentro.hlsl", .entryPoint = "VSMain", .type = eShaderType::Vertex }
 };
+
+static constexpr std::int32_t NUM_SHADER_ENTRIES{ sizeof(entries) / sizeof(shaderEntry) };
 
 // Arguments:
 /*
@@ -103,9 +174,7 @@ int main(int argc, char* argv[])
 		Zs = 0x8
 	};
 
-	static constexpr std::int32_t PATH_MAX_BUFFER{ 64 };
-	static constexpr std::int32_t MAX_DEFINES{ 32 };
-	static constexpr std::int32_t DEFINES_MAX_BUFFER{ 64 };
+
 
 	char outputFolder[PATH_MAX_BUFFER];
 	char defines[MAX_DEFINES][DEFINES_MAX_BUFFER];
@@ -202,30 +271,24 @@ int main(int argc, char* argv[])
 		return 0;
 	}
 
-	//DxcCreateInstanceProc DxcCreateInstance{ (DxcCreateInstanceProc)GetProcAddress(dxcLibModule, "DxcCreateInstance") };
-	//
-	//ComPtr<IDxcCompiler3> dxCompiler;
-	//DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&dxCompiler));
-	//
-	//std::ifstream file{ "../../../assets/shaders/basic.hlsl",std::ios::binary | std::ios::ate | std::ios::in };
-	//static char shaderBlob[81920]; //4KB
-	//if (!file.is_open())
-	//{
-	//	LOG_CRITICAL(logger, "File ../../../assets/shaders/basic.hlsl couldn't be opened");
-	//	return 0;
-	//}
-	//std::uint32_t size{ static_cast<std::uint32_t>(file.tellg()) };
-	//
-	//file.seekg(0, std::ios::beg);
-	//file.read(shaderBlob, size);
-	//file.close();
-	//
-	//const DxcBuffer dxcBuff{
-	//	.Ptr = shaderBlob,
-	//	.Size = size,
-	//	.Encoding = DXC_CP_UTF8
-	//};
+	DxcCreateInstanceProc DxcCreateInstance{ (DxcCreateInstanceProc)GetProcAddress(dxcLibModule, "DxcCreateInstance") };
 	
+	ComPtr<IDxcCompiler3> dxCompiler;
+	DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&dxCompiler));
+	
+	//Compile each shader entry
+	
+	using namespace std;
+
+	
+// Arguments:
+/*
+* -F     Output folder where all files will be saved. If a file is contained in a subfolder, then it will be written into -F + /path/to/subfolder/shader.bin
+* -D     An array of defines that will be globally setup ( -D DEFINE1=a DEFINE2=b DEFINE3=c ...)
+* -Od    Pass this to disable optimizations
+* -Zs    Enable debug information. This will generate extra .pdb files
+*/
+
 	/*
 	L"basic.hlsl",							    // Optional shader source file name for error reporting and for PIX shader source view.
 	L"-E", L"MainVS",							// Entry point.
@@ -244,6 +307,76 @@ int main(int argc, char* argv[])
 	L"-Qstrip_rootsignature"
 
 	*/
+	
+	static constexpr int32_t MAX_COMPILE_PARAMS{ 128 };
+	StackArray<LPCWSTR, MAX_COMPILE_PARAMS> compileParams;
+	
+	//let's fill first parameters that are not configurable.
+	compileParams.Data[0] = L"-Qstrip_debug";
+	compileParams.Data[1] = L"-Qstrip_priv";
+	compileParams.Data[2] = L"-Qstrip_reflect";
+	compileParams.Data[3] = L"-Qstrip_rootsignature";
+	//user defined inputs
+
+
+	for (int32_t i{}; i < NUM_SHADER_ENTRIES; ++i)
+	{
+		const shaderEntry& entry{ entries[i] };
+		WLocalString<PATH_MAX_BUFFER> Name;
+		
+		//find the first backslash 
+		{
+			size_t origSize = strlen(entry.path) + 1;
+			size_t nameSize;
+			const char* start{ entry.path };
+			const char* it{ start + (origSize - 2)}; //skip null term
+			while (it >= start) //reverse iterate
+			{
+				char test{ *it };
+				if (test == '\\' || test == '/')
+				{
+					break;
+				}
+				--it;
+			}
+
+			nameSize = it - start;
+			size_t convertedChars; //do something with this I guess?
+			mbstowcs_s(&convertedChars, Name.Data, origSize, it + 1, _TRUNCATE);
+		}
+		compileParams.Data[4] = Name.Data;
+		compileParams.Data[5] = flags & compileFlags::Od ? L"-Od" : L"-O3";
+
+		WLocalString<PATH_MAX_BUFFER> OutputPath;
+		//output path is
+		//-F + shader.path. If -F arg is not present then just use the same path as the shader
+
+
+
+
+	}
+
+	std::ifstream file{ "../../../assets/shaders/basic.hlsl",std::ios::binary | std::ios::ate | std::ios::in };
+	char shaderBlob[81920]; //4KB
+	if (!file.is_open())
+	{
+		LOG_CRITICAL(logger, "File ../../../assets/shaders/basic.hlsl couldn't be opened");
+		return 0;
+		std::uint32_t size{ static_cast<std::uint32_t>(file.tellg()) };
+		file.seekg(0, std::ios::beg);
+		file.read(shaderBlob, size);
+		file.close();
+	}
+	
+	
+	//const DxcBuffer dxcBuff{
+	//	.Ptr = shaderBlob,
+	//	.Size = size,
+	//	.Encoding = DXC_CP_UTF8
+	//};
+	
+
+
 	LPCWSTR pszArgs[] =
 	{
 		//L"basic.hlsl",							    // Optional shader source file name for error reporting and for PIX shader source view.  
@@ -314,7 +447,7 @@ int main(int argc, char* argv[])
 	//	fclose(fp);
 	//
 	//}
-	FreeLibrary(dxcLibModule);
+	//FreeLibrary(dxcLibModule);
 	return 0;
 }
 
