@@ -113,14 +113,14 @@ static constexpr std::int32_t ENTRY_POINT_MAX_BUFFER{ 31 };
 struct shaderEntry
 {
 	const char* path; // the path is relative to the source code assets/shaders folder.
-	const char* entryPoint;
+	const wchar_t* entryPoint;
 	eShaderType type;
 };
 
 static constexpr shaderEntry entries[]{
-	shaderEntry{ .path = "basic.hlsl", .entryPoint = "VSMain", .type = eShaderType::Vertex},
-	shaderEntry{ .path = "basic.hlsl", .entryPoint = "PSMain", .type = eShaderType::Pixel},
-	shaderEntry{ .path = "pollaycojones/basicDentro.hlsl", .entryPoint = "VSMain", .type = eShaderType::Vertex }
+	shaderEntry{ .path = "basic.hlsl", .entryPoint = L"VSMain", .type = eShaderType::Vertex},
+	shaderEntry{ .path = "basic.hlsl", .entryPoint = L"PSMain", .type = eShaderType::Pixel},
+	shaderEntry{ .path = "pollaycojones/basicDentro.hlsl", .entryPoint = L"VSMain", .type = eShaderType::Vertex }
 };
 
 static constexpr std::int32_t NUM_SHADER_ENTRIES{ sizeof(entries) / sizeof(shaderEntry) };
@@ -177,7 +177,8 @@ int main(int argc, char* argv[])
 
 
 	char outputFolder[PATH_MAX_BUFFER]{"\0"};
-	char defines[MAX_DEFINES][DEFINES_MAX_BUFFER];
+
+	WLocalString<DEFINES_MAX_BUFFER> defines[MAX_DEFINES];
 	std::int32_t numDefines{};
 	std::uint8_t flags{};
 
@@ -241,9 +242,12 @@ int main(int argc, char* argv[])
 				}
 
 				LOG_INFO(logger, "{} registered as a global define", arg);
-				memcpy(defines[numDefines], arg.data(), defineLength);
-				outputFolder[defineLength] = '\0';
-				++numDefines;
+
+				size_t convertedChars;
+				mbstowcs_s(&convertedChars, defines[numDefines].Data, arg.data(), DEFINES_MAX_BUFFER);
+				defines[numDefines].Num = static_cast<int32_t>(convertedChars);
+
+				numDefines++;
 
 			}
 
@@ -309,21 +313,38 @@ int main(int argc, char* argv[])
 	*/
 	
 	static constexpr int32_t MAX_COMPILE_PARAMS{ 128 };
+	static constexpr int32_t NUM_PERMANENT_PARAMETERS{ 4 };
 	StackArray<LPCWSTR, MAX_COMPILE_PARAMS> compileParams;
-	compileParams.Num = 0;
 	
 	
 	//let's fill first parameters that are not configurable.
-	compileParams.Data[compileParams.Num++] = L"-Qstrip_debug";
-	compileParams.Data[compileParams.Num++] = L"-Qstrip_priv";
-	compileParams.Data[compileParams.Num++] = L"-Qstrip_reflect";
-	compileParams.Data[compileParams.Num++] = L"-Qstrip_rootsignature";
 
-	//user defined inputs
+	compileParams.Data[0] = L"-Qstrip_debug";
+	compileParams.Data[1] = L"-Qstrip_priv";
+	compileParams.Data[2] = L"-Qstrip_reflect";
+	compileParams.Data[3] = L"-Qstrip_rootsignature";
+	compileParams.Num = NUM_PERMANENT_PARAMETERS;
 
-	for (int32_t i{}; i < NUM_SHADER_ENTRIES; ++i)
+	
+	//We have to issue one compilation + dump per loop.
+	//We check for the same flags multiple times because some parameters are not know before hand.
+	//It'd be nice to have a SoA with each shader entry parameter, and compute all needed parameters at once, then just point to the right memory for each 
+	//compilation entry. This way we are always calling the same function for each operation, which is more efficient. Not needed at all but it's fun.
+
+	for (int32_t i{}; i < NUM_SHADER_ENTRIES; ++i, compileParams.Num = NUM_PERMANENT_PARAMETERS)
 	{
 		const shaderEntry& entry{ entries[i] };
+		
+		//Get the entry point
+		compileParams.Data[compileParams.Num++] = L"-E";
+		compileParams.Data[compileParams.Num++] = entry.entryPoint;
+		//Get the shader type
+		compileParams.Data[compileParams.Num++] = L"-T";
+		compileParams.Data[compileParams.Num++] = ShaderTypeToString(entry.type);
+
+		//Handle name, path and debug path if applies
+		//A bit obscure as the output binaries and debug files will be named the same
+		//except for the file extension, so it's a bit hacky in the end hehe
 		WLocalString<PATH_MAX_BUFFER> Name;
 		WLocalString<PATH_MAX_BUFFER * 2> OutputPath{ .Data = L"\0", .Num = 0 };
 		WLocalString<PATH_MAX_BUFFER * 2> DebugPath{ OutputPath };
@@ -352,8 +373,6 @@ int main(int argc, char* argv[])
 			Name.Num = static_cast<int32_t>(convertedChars) - 1;
 
 			//concatenate -F path + shader.path (without the name)
-
-
 			if (flags & compileFlags::F)
 			{
 				mbstowcs_s(&convertedChars, OutputPath.Data, strlen(outputFolder) + 1, outputFolder, _TRUNCATE);
@@ -366,12 +385,15 @@ int main(int argc, char* argv[])
 
 		}
 
+		//Set the shader name
 		compileParams.Data[compileParams.Num++] = Name.Data;
-		compileParams.Data[compileParams.Num++] = flags & compileFlags::Od ? L"-Od" : L"-O3";
+		//Output file
 		compileParams.Data[compileParams.Num++] = L"-Fo";
 		compileParams.Data[compileParams.Num++] = OutputPath.Data;
-		//output path is
-		//-F + shader.path. If -F arg is not present then just use the same path as the shader
+		//Check if we disable optimizations
+		compileParams.Data[compileParams.Num++] = flags & compileFlags::Od ? L"-Od" : L"-O3";
+
+		//Check if we dump debug files, and output them with the same name as the binary output but with another extension
 		if (flags & compileFlags::Zs)
 		{
 			compileParams.Data[compileParams.Num++] = L"-Zs";
@@ -379,15 +401,20 @@ int main(int argc, char* argv[])
 			wcscat_s(DebugPath.Data, OutputPath.Data);
 			wcscpy(DebugPath.Data + OutputPath.Num - 3, L"pdb");
 			DebugPath.Num = OutputPath.Num;
+			compileParams.Data[compileParams.Num++] = L"-Fd";
 			compileParams.Data[compileParams.Num++] = DebugPath.Data;
 		}
 
+		//Add global defines. For now, not supporting permutations.
 		if (flags & compileFlags::D)
 		{
 			compileParams.Data[compileParams.Num++] = L"-D";
 
+			for (int32_t i{}; i < numDefines; i++)
+			{
+				compileParams.Data[compileParams.Num++] = defines[i].Data;
+			}
 		}
-
 
 
 	}
