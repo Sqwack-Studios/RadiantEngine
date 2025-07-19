@@ -358,7 +358,9 @@ int main(int argc, char* argv[])
 		//Handle name, path and debug path if applies
 		//A bit obscure as the output binaries and debug files will be named the same
 		//except for the file extension, so it's a bit hacky in the end hehe
-		WLocalString<PATH_MAX_BUFFER> Name;
+		WLocalString<PATH_MAX_BUFFER> WidePath;
+		int32_t nameOffset{};
+
 		WLocalString<PATH_MAX_BUFFER * 2> OutputPath{ .Data = L"\0", .Num = 0 };
 		WLocalString<PATH_MAX_BUFFER * 2> DebugPath{ OutputPath };
 
@@ -375,31 +377,38 @@ int main(int argc, char* argv[])
 				char test{ *it };
 				if (test == '\\' || test == '/')
 				{
+					++it;
 					break;
 				}
 				--it;
 			}
 
 			nameSize = end - it;
-			size_t convertedChars; //do something with this I guess?
-			mbstowcs_s(&convertedChars, Name.Data, nameSize, it, _TRUNCATE);
-			Name.Num = static_cast<int32_t>(convertedChars) - 1;
+			nameOffset = static_cast<int32_t>(it - start);
+
+			{
+				size_t convertedChars; //do something with this I guess?
+				mbstowcs_s(&convertedChars, WidePath.Data, PATH_MAX_BUFFER, entry.path, _TRUNCATE);
+				WidePath.Num = static_cast<int32_t>(convertedChars) - 1;
+			}
 
 			//concatenate -F path + shader.path (without the name)
 			if (flags & compileFlags::F)
 			{
+				size_t convertedChars;
 				mbstowcs_s(&convertedChars, OutputPath.Data, strlen(outputFolder) + 1, outputFolder, _TRUNCATE);
+				OutputPath.Num = static_cast<int32_t>(convertedChars) - 1;
 			}
 
-			wcscat_s(OutputPath.Data, Name.Data);
-			OutputPath.Num = static_cast<int32_t>(convertedChars) + Name.Num - 1;
+			wcscat_s(OutputPath.Data, WidePath.Data);
+			OutputPath.Num = OutputPath.Num + WidePath.Num;
 			wcscpy(OutputPath.Data + OutputPath.Num - 4, L"bin");
 			OutputPath.Num--;//let's do this trick because we override hlsl for bin, which only has 1 letter difference. Effectively we go from shadername.hlsl to shadername.bin
 
 		}
 
 		//Set the shader name
-		compileParams.Data[compileParams.Num++] = Name.Data;
+		compileParams.Data[compileParams.Num++] = WidePath.Data + nameOffset;
 		//Output file
 		compileParams.Data[compileParams.Num++] = L"-Fo";
 		compileParams.Data[compileParams.Num++] = OutputPath.Data;
