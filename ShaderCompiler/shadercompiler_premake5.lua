@@ -34,6 +34,8 @@ project "ShaderCompiler"
 		"include/**.hpp",
     }
 
+	defines{ "PROJECT_COMPILE"}
+
     filter "system:windows"
 		systemversion "latest"
 		staticruntime "on"
