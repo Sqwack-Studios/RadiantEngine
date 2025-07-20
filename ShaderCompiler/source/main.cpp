@@ -17,7 +17,6 @@
 #include <fstream>
 #include <string_view>
 #include <iostream>
-#include <algorithm>
 #include "quill/Frontend.h"
 #include "quill/Backend.h"
 #include "quill/LogMacros.h"
@@ -229,11 +228,6 @@ int main(int argc, char* argv[])
 	WLocalString<MAX_PATH> CurrentDirectory;
 	CurrentDirectory.Num = GetCurrentDirectory(MAX_PATH, CurrentDirectory.Data);
 	
-	wchar_t aaa{ CurrentDirectory.Data[CurrentDirectory.Num] };
-	CurrentDirectory.Data[CurrentDirectory.Num] = L'\\';
-	CurrentDirectory.Data[CurrentDirectory.Num + 1] = L'\0';
-	CurrentDirectory.Num += 1;
-
 	char outputFolder[PATH_MAX_BUFFER]{"\0"};
 	int32_t outputFolderSize{};
 
@@ -581,25 +575,9 @@ int main(int argc, char* argv[])
 		fullPath.Num += concatOutputPathSize - 1;
 
 		//TODO: Rework the paths so the always start with backslash but never finish with one
-
+		//TODO: Use CreateDirectory recursively so we avoid to use the full path, which shrinks a lot the size of the output paths
 		int webo{ SHCreateDirectory(NULL, fullPath.Data) };
 
-		switch (webo)
-		{
-		case ERROR_BAD_PATHNAME:
-		{
-
-			break;
-		}
-		case ERROR_FILENAME_EXCED_RANGE:
-		{
-			break;
-		}
-		case ERROR_PATH_NOT_FOUND:
-		{
-			break;
-		}
-		}
 
 		//Get the .pdb if applies
 		//Create folder if doesn't exist
