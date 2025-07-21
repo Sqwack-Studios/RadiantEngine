@@ -137,12 +137,36 @@ static void replace_all(T* first, const T* last, const T cmp, const T replace)
 	}
 }
 
+
+template<typename T>
+static T* find_last(const T* first, T* last, const T cmp)
+{
+	//Because we find the last, we iterate on reverse. So the first time we find a valid cmp, we bail
+	T* cursor{ last };
+
+	T* ret{};
+	for (; cursor != first; cursor--)
+	{
+		if (*cursor == cmp)
+		{
+			ret = cursor;
+			break;
+		}
+	}
+
+	return ret;
+}
+
 using namespace std;
 
 static constexpr int32_t PATH_MAX_BUFFER{ 128 };
 static constexpr int32_t MAX_DEFINES{ 32 };
 static constexpr int32_t DEFINES_MAX_BUFFER{ 64 };
 static constexpr int32_t ENTRY_POINT_MAX_BUFFER{ 31 };
+static constexpr const wchar_t OUTPUT_EXTENSION[]{ L"bin" };
+static constexpr int32_t OUTPUT_EXTENSION_SIZE{ _countof(OUTPUT_EXTENSION) - 1 };
+static constexpr const char SHADER_EXTENSION[]{ "hlsl" };
+static constexpr int32_t SHADER_EXTENSION_SIZE{ _countof(SHADER_EXTENSION) - 1 };
 
 struct shaderEntry
 {
@@ -161,16 +185,16 @@ static constexpr std::int32_t NUM_SHADER_ENTRIES{ sizeof(entries) / sizeof(shade
 
 #ifdef PROJECT_COMPILE
 
-static constexpr const wchar_t* dxLibPath{ L"../../../vendor/dxc/bin/dxcompiler.dll" };
-static constexpr const wchar_t* shadersFolderPathW{ L"../../../assets/shaders/" };
-static constexpr const char* shadersFolderPath{ "../../../assets/shaders/" };
+static constexpr const wchar_t* DX_LIB_PATH{ L"../../../vendor/dxc/bin/dxcompiler.dll" };
+static constexpr const wchar_t SHADERS_FOLDER_PATHW[]{ L"../../../assets/shaders" };
+static constexpr const char SHADERS_FOLDER_PATH[]{ "../../../assets/shaders" };
 
 
 #else
 
-static constexpr const wchar_t* dxLibPath{ L"vendor/dxc/bin/dxcompiler.dll" };
-static constexpr const wchar_t* shadersFolderPathW{ L"assets/shaders/" };
-static constexpr const char* shadersFolderPath{ "assets/shaders/" };
+static constexpr const wchar_t* DX_LIB_PATH{ L"vendor/dxc/bin/dxcompiler.dll" };
+static constexpr const wchar_t SHADERS_FOLDER_PATHW[]{ L"assets/shaders" };
+static constexpr const char SHADERS_FOLDER_PATH[]{ "assets/shaders" };
 
 
 #endif
@@ -225,8 +249,16 @@ int main(int argc, char* argv[])
 	};
 
 
-	WLocalString<MAX_PATH> CurrentDirectory;
-	CurrentDirectory.Num = GetCurrentDirectory(MAX_PATH, CurrentDirectory.Data);
+	WLocalString<MAX_PATH> ExecutablePath;
+	ExecutablePath.Num  = GetModuleFileName(NULL, ExecutablePath.Data, MAX_PATH);
+
+	{//Trim the executable part and leave the absolute directory path
+		wchar_t* end{ ExecutablePath.Data + ExecutablePath.Num };
+		wchar_t* lastBackSlash{ find_last<wchar_t>(ExecutablePath.Data, ExecutablePath.Data + ExecutablePath.Num, '\\') };
+		*lastBackSlash = '\0';
+		ExecutablePath.Num -= end - lastBackSlash;
+	}
+
 	
 	char outputFolder[PATH_MAX_BUFFER]{"\0"};
 	int32_t outputFolderSize{};
@@ -324,7 +356,7 @@ int main(int argc, char* argv[])
 
 
 	
-	HINSTANCE dxcLibModule{ LoadLibrary(dxLibPath) };
+	HINSTANCE dxcLibModule{ LoadLibrary(DX_LIB_PATH) };
 
 	if (!dxcLibModule)
 	{
@@ -389,15 +421,21 @@ int main(int argc, char* argv[])
 	{
 		const shaderEntry& entry{ entries[i] };
 		
-		LocalString<PATH_MAX_BUFFER> EntryPath;
-		EntryPath.Num = static_cast<int32_t>(strlen(entry.path));
-		if (EntryPath.Num > PATH_MAX_BUFFER)
+		LocalString<PATH_MAX_BUFFER> entryPath;
+		entryPath.Num = static_cast<int32_t>(strlen(entry.path));
+		if (entryPath.Num > PATH_MAX_BUFFER)
 		{
-			int32_t diff{ EntryPath.Num - PATH_MAX_BUFFER };
+			int32_t diff{ entryPath.Num - PATH_MAX_BUFFER };
 			LOG_WARNING(logger, "The relative path of the shader entry {} exceeds the limit size by {} characters. Skipping...", entry.path + diff, diff);
 			continue;
 		}
-		strncpy(EntryPath.Data, entry.path, PATH_MAX_BUFFER);
+		strncpy(entryPath.Data, entry.path, PATH_MAX_BUFFER);
+
+		WLocalString<PATH_MAX_BUFFER> widePath;
+		WLocalString<PATH_MAX_BUFFER * 2> outputPath{ .Data = L"\0", .Num = 0 };
+		WLocalString<PATH_MAX_BUFFER * 2> debugPath{ outputPath };
+		int32_t namePathOffset{};
+		int32_t nameSize{};
 
 		//Get the entry point
 		compileParams.Data[compileParams.Num++] = L"-E";
@@ -406,78 +444,73 @@ int main(int argc, char* argv[])
 		compileParams.Data[compileParams.Num++] = L"-T";
 		compileParams.Data[compileParams.Num++] = ShaderTypeToString(entry.type);
 
-		//Handle name, path and debug path if applies
-		//A bit obscure as the output binaries and debug files will be named the same
-		//except for the file extension, so it's a bit hacky in the end hehe
-		WLocalString<PATH_MAX_BUFFER> WidePath;
-		int32_t namePathOffset{};
-		int32_t nameSize{};
+		
+		{//find the first backslash, if it exists
 
-		WLocalString<PATH_MAX_BUFFER * 2> OutputPath{ .Data = L"\0", .Num = 0 };
-		WLocalString<PATH_MAX_BUFFER * 2> DebugPath{ OutputPath };
-		int32_t concatOutputPathSize{};
+			const char* start{ entryPath.Data };
+			const char* end{ start + entryPath.Num };
+			char* lastBackslash{ (char*)start };
 
-		//find the first backslash 
-		{
-
-			const char* start{ EntryPath.Data };
-			const char* end{ start + EntryPath.Num };
-			char* it{ (char*)start };
-			const char* lastBackslash{ start };
-
-			while (it != end) //fwd iterate while replacing backslash with fwd slash
+			for (; lastBackslash != start; lastBackslash--)
 			{
-				char test{ *it };
+				char test{ *lastBackslash };
 				if (test == '\\' || test == '/')
 				{
-					*it = '\\';
-					lastBackslash = it;
+					break;
 				}
-				it++;
 			}
 
-			nameSize = static_cast<int32_t>(it - lastBackslash);
+			nameSize = static_cast<int32_t>(end - lastBackslash);
 			namePathOffset = lastBackslash == start ? 0 : static_cast<int32_t>(lastBackslash - start) + 1;
-
-			{
-				size_t convertedChars; //do something with this I guess?
-				mbstowcs_s(&convertedChars, WidePath.Data, PATH_MAX_BUFFER, EntryPath.Data, _TRUNCATE);
-				WidePath.Num = static_cast<int32_t>(convertedChars) - 1;
-			}
-
-			//concatenate -F path + shader.path (without the name)
-			if (flags & compileFlags::F)
-			{
-				size_t convertedChars;
-				mbstowcs_s(&convertedChars, OutputPath.Data, strlen(outputFolder) + 1, outputFolder, _TRUNCATE);
-				OutputPath.Num = concatOutputPathSize = static_cast<int32_t>(convertedChars) - 1;
-			}
-
-			wcscat_s(OutputPath.Data, WidePath.Data);
-			OutputPath.Num = OutputPath.Num + WidePath.Num;
-			concatOutputPathSize += namePathOffset;
-			wcscpy(OutputPath.Data + OutputPath.Num - 4, L"bin");
-			OutputPath.Num--;//let's do this trick because we override hlsl for bin, which only has 1 letter difference. Effectively we go from shadername.hlsl to shadername.bin
-			
-			if (int32_t diff{ CurrentDirectory.Num + concatOutputPathSize - 1 - MAX_PATH }; diff > 0)
-			{
-				LocalString<MAX_PATH> d1;
-				LocalString<MAX_PATH> d2;
-
-				wcstombs(d1.Data, CurrentDirectory.Data, MAX_PATH);
-				wcstombs(d2.Data, OutputPath.Data, MAX_PATH);
-
-				LOG_WARNING(logger, "The full working path {}, concatenated with the relative output directory {} exceeds the limit of {} characters by {}, skipping...", 
-					d1.Data, d2.Data , MAX_PATH, diff);
-				continue;
-			}
 		}
 
+
+		{
+			size_t convertedChars; //do something with this I guess?
+			mbstowcs_s(&convertedChars, widePath.Data, PATH_MAX_BUFFER, entryPath.Data, _TRUNCATE);
+			widePath.Num = static_cast<int32_t>(convertedChars) - 1;
+		}
+
+		if (flags & compileFlags::F)
+		{
+			size_t convertedChars;
+			mbstowcs_s(&convertedChars, outputPath.Data, PATH_MAX_BUFFER * 2, outputFolder, _TRUNCATE);
+			outputPath.Num = static_cast<int32_t>(convertedChars) - 1;
+		}
+
+		//concatenate -F path + shader.path (without the name)
+		{//append the slash and change the trailing extension
+			int32_t slashLoc{ outputPath.Num };
+			outputPath.Data[slashLoc] = L'/';
+			int32_t trimmedExtensionNum{ widePath.Num - SHADER_EXTENSION_SIZE };
+			memcpy(outputPath.Data + slashLoc + 1, widePath.Data, sizeof(wchar_t) * trimmedExtensionNum);
+			memcpy(outputPath.Data + slashLoc + 1 + trimmedExtensionNum, OUTPUT_EXTENSION, sizeof(wchar_t) * OUTPUT_EXTENSION_SIZE);
+
+			outputPath.Num = outputPath.Num + trimmedExtensionNum + 1 /*the slash*/ + OUTPUT_EXTENSION_SIZE;
+			outputPath.Data[outputPath.Num] = '\0';
+			
+		}
+
+		
+		if (int32_t diff{ ExecutablePath.Num + outputPath.Num + 1 - MAX_PATH }; diff > 0)
+		{
+			LocalString<MAX_PATH> d1;
+			LocalString<MAX_PATH> d2;
+
+			wcstombs(d1.Data, ExecutablePath.Data, MAX_PATH);
+			wcstombs(d2.Data, outputPath.Data, MAX_PATH);
+
+			LOG_WARNING(logger, "The full working path {}, concatenated with the relative output directory {} exceeds the limit of {} characters by {}, skipping...", 
+				d1.Data, d2.Data , MAX_PATH, diff);
+			continue;
+		}
+
+
 		//Set the shader name
-		compileParams.Data[compileParams.Num++] = WidePath.Data + namePathOffset;
+		compileParams.Data[compileParams.Num++] = widePath.Data + namePathOffset;
 		//Output file
 		compileParams.Data[compileParams.Num++] = L"-Fo";
-		compileParams.Data[compileParams.Num++] = OutputPath.Data;
+		compileParams.Data[compileParams.Num++] = outputPath.Data;
 		//Check if we disable optimizations
 		compileParams.Data[compileParams.Num++] = flags & compileFlags::Od ? L"-Od" : L"-O3";
 
@@ -486,11 +519,11 @@ int main(int argc, char* argv[])
 		{
 			compileParams.Data[compileParams.Num++] = L"-Zs";
 
-			wcscat_s(DebugPath.Data, OutputPath.Data);
-			wcscpy(DebugPath.Data + OutputPath.Num - 3, L"pdb");
-			DebugPath.Num = OutputPath.Num;
+			wcscat_s(debugPath.Data, outputPath.Data);
+			wcscpy(debugPath.Data + outputPath.Num - 3, L"pdb");
+			debugPath.Num = outputPath.Num;
 			compileParams.Data[compileParams.Num++] = L"-Fd";
-			compileParams.Data[compileParams.Num++] = DebugPath.Data;
+			compileParams.Data[compileParams.Num++] = debugPath.Data;
 		}
 
 		//Add global defines. For now, not supporting permutations.
@@ -505,11 +538,16 @@ int main(int argc, char* argv[])
 		}
 
 		//Now we are ready to compile
-		LocalString<PATH_MAX_BUFFER> sourceShaderPath;
-
-		strcpy_s(sourceShaderPath.Data, shadersFolderPath);
-		strncat_s(sourceShaderPath.Data, entry.path, _TRUNCATE);
-		sourceShaderPath.Num = static_cast<uint32_t>(strlen(sourceShaderPath.Data));
+		WLocalString<PATH_MAX_BUFFER> sourceShaderPath;
+		{
+			constexpr size_t folderLen{ _countof(SHADERS_FOLDER_PATHW) - 1 };
+			memcpy(sourceShaderPath.Data, SHADERS_FOLDER_PATHW, sizeof(wchar_t) * (folderLen));//dont copy the trailing '\0'
+			sourceShaderPath.Data[folderLen] = L'/';
+			memcpy(sourceShaderPath.Data + (folderLen + 1u), widePath.Data + namePathOffset, sizeof(wchar_t) * nameSize);
+			size_t num{(folderLen + 1u) + nameSize };
+			sourceShaderPath.Data[num] = L'\0';
+			sourceShaderPath.Num = static_cast<int32_t>(num);
+		}
 
 		{
 			LocalString<ENTRY_POINT_MAX_BUFFER + 1> tempEntryPoint;
@@ -569,13 +607,13 @@ int main(int argc, char* argv[])
 
 		WLocalString<MAX_PATH> fullPath{};
 
-		wcsncat(fullPath.Data, CurrentDirectory.Data, CurrentDirectory.Num);
-		fullPath.Num = CurrentDirectory.Num;
-		wcsncat(fullPath.Data, OutputPath.Data, concatOutputPathSize - 1);
-		fullPath.Num += concatOutputPathSize - 1;
+		wcsncat(fullPath.Data, ExecutablePath.Data, ExecutablePath.Num);
+		fullPath.Num = ExecutablePath.Num;
+		//wcsncat(fullPath.Data, outputPath.Data, concatOutputPathSize - 1);
+		//fullPath.Num += concatOutputPathSize - 1;
 
 		//TODO: Rework the paths so the always start with backslash but never finish with one
-		//TODO: Use CreateDirectory recursively so we avoid to use the full path, which shrinks a lot the size of the output paths
+		//TODO: Get executable path, not working directory
 		int webo{ SHCreateDirectory(NULL, fullPath.Data) };
 
 
