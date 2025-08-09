@@ -31,23 +31,6 @@ using namespace Microsoft::WRL;
 
 namespace {
 
-
-	template<typename T, typename U>
-	struct same_type
-	{
-		static constexpr bool val{ false };
-	};
-
-	template<typename T>
-	struct same_type<T, T>
-	{
-		static constexpr bool val{ true };
-	};
-
-	template<typename T, typename U>
-	static constexpr bool same_type_v = same_type<T, U>::val;
-
-
 	template<typename T>
 	struct Span
 	{
@@ -69,21 +52,6 @@ namespace {
 			data[num] = item;
 			num++;
 		}
-
-		//void add(T* items, int32_t itemsNum)
-		//{
-		//	
-		//	if constexpr (same_type_v<T, wchar_t>)
-		//	{
-		//		wmemcpy(data[num], items, itemsNum * sizeof(wchar_t);
-		//	}
-		//	else
-		//	{
-		//		memcpy(data[num], items, itemsNum * sizeof(T));
-		//	}
-		//
-		//	num += itemsNum;
-		//}
 
 		T& operator[](int32_t i) { return data[i]; }
 		const T& operator[](int32_t i) const { return data[i]; }
@@ -194,6 +162,7 @@ namespace {
 	static constexpr size_t MAX_DEFINES{ 32 };
 	static constexpr size_t DEFINES_MAX_BUFFER{ 64 };
 	static constexpr size_t ENTRY_POINT_MAX_BUFFER{ 32 };
+
 	static constexpr const wchar_t OUTPUT_EXTENSION[]{ L".bin" };
 	static constexpr size_t OUTPUT_EXTENSION_SIZE{ _countof(OUTPUT_EXTENSION) - 1 };
 	static constexpr const wchar_t DEBUG_EXTENSION[]{ L".pdb" };
@@ -245,8 +214,8 @@ int main(int argc, char* argv[])
 {
 	quill::Logger* logger;
 	quill::Backend::start();
-
 	
+	{
 		quill::PatternFormatterOptions loggerPattern{
 		std::string{ "%(time) [%(thread_id)] %(log_level) "
 					"%(message) "},
@@ -271,8 +240,7 @@ int main(int argc, char* argv[])
 
 		logger = quill::Frontend::create_or_get_logger(
 			"root", quill::Frontend::create_or_get_sink<quill::ConsoleSink>("sink_id_1", csinkConfig), loggerPattern);
-
-	
+	}
 
 	//Initialize all the buffers
 	wchar_t executablePathBuffer[MAX_PATH]{ L"\0" };
@@ -603,7 +571,7 @@ int main(int argc, char* argv[])
 		}
 		
 		std::ifstream file{ sourceShaderPath.data,std::ios::binary | std::ios::ate | std::ios::in };
-		char shaderBlob[81920]; //4KB
+		char shaderBlob[81920]; //81KB
 		if (!file.is_open())
 		{
 			LOG_WARNING(logger, "File couldn't be opened. Skipping compilation...");
