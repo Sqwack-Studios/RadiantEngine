@@ -29,161 +29,160 @@ using namespace Microsoft::WRL;
 #define persistent static //use this when declaring a variable with persistent memory locally in a function 
 #define internal static //use this when declaring a function to be internally linked to the scope of the translation unit
 
-namespace {
+template<typename T>
+struct Span
+{
+	T* data;
+	size_t num;
+};
+
+
+//only for POD types
+//no bounds checking anywhere
+template<typename T, int32_t N>
+struct StackArray
+{
+	T data[N];
+	size_t num;
+
+	void add(T item)
+	{
+		data[num] = item;
+		num++;
+	}
+
+	T& operator[](size_t i) { return data[i]; }
+	const T& operator[](size_t i) const { return data[i]; }
+};
+
+
+enum eShaderType : std::uint8_t {
+	Vertex = 0,
+	Hull,
+	Domain,
+	Geometry,
+	Pixel,
+	Compute,
+	Mesh,
+	NUM
+};
+
+//vs, ps, ds, hs, gs, cs, ms, lib; 6_0 - 6_7
+static constexpr const wchar_t* ShaderTypeToString(eShaderType type)
+{
+	constexpr const wchar_t* lut[]{
+		L"vs_6_7",
+		L"hs_6_7",
+		L"ds_6_7",
+		L"gs_6_7",
+		L"ps_6_7",
+		L"cs_6_7",
+		L"ms_6_7",
+		L"Unknown shader type"
+
+	};
+	return lut[type];
+}
+
+
+template<typename T>
+internal void replace_all(T* first, const T* last, const T cmp, const T replace)
+{
+	T* cursor{ first };
+	for (; cursor != last; ++cursor)
+	{
+		if (*cursor == cmp)
+		{
+			*cursor = replace;
+		}
+	}
+}
+
+template<typename T>
+internal T* find_last(T* first, T* last, T cmp)
+{
+	//Because we find the last, we iterate on reverse. So the first time we find a valid cmp, we bail
+	T* cursor{ last };
+	T* ret{ };
+	for (; cursor != first; cursor--)
+	{
+		if (*cursor == cmp)
+		{
+			ret = cursor;
+			break;
+		}
+	}
+
+	return ret;
+}
+
+
+template<typename T>
+struct str
+{
+	T* data;
+	size_t num;
+	size_t cap;
+
+	operator Span<T>()
+	{
+		return Span<T>{.data = data, .num = num };
+	}
 
 	template<typename T>
-	struct Span
+	operator Span<const T>()
 	{
-		T* data;
-		int32_t num;
-	};
-
-
-	//only for POD types
-	//no bounds checking anywhere
-	template<typename T, int32_t N>
-	struct StackArray
-	{
-		T data[N];
-		int32_t num;
-
-		void add(T item)
-		{
-			data[num] = item;
-			num++;
-		}
-
-		T& operator[](int32_t i) { return data[i]; }
-		const T& operator[](int32_t i) const { return data[i]; }
-	};
-
-
-	enum eShaderType : std::uint8_t {
-		Vertex = 0,
-		Hull,
-		Domain,
-		Geometry,
-		Pixel,
-		Compute,
-		Mesh,
-		NUM
-	};
-
-	//vs, ps, ds, hs, gs, cs, ms, lib; 6_0 - 6_7
-	static constexpr const wchar_t* ShaderTypeToString(eShaderType type)
-	{
-		constexpr const wchar_t* lut[]{
-			L"vs_6_7",
-			L"hs_6_7",
-			L"ds_6_7",
-			L"gs_6_7",
-			L"ps_6_7",
-			L"cs_6_7",
-			L"ms_6_7",
-			L"Unknown shader type"
-
-		};
-		return lut[type];
+		return Span<const T>{.data = data, .num = num }; 
 	}
+};
+
+using String = str<char>;
+using WString = str<wchar_t>;
+
+internal void string_to_wide(WString& dst, Span<const char> src)
+{
+	size_t convertedChars; //do something with this I guess?
+	mbstowcs_s(&convertedChars, dst.data, dst.cap, src.data, src.num);
+	dst.num = convertedChars - 1;
+}
 
 
-	template<typename T>
-	internal void replace_all(T* first, const T* last, const T cmp, const T replace)
-	{
-		T* cursor{ first };
-		for (; cursor != last; ++cursor)
-		{
-			if (*cursor == cmp)
-			{
-				*cursor = replace;
-			}
-		}
-	}
+internal void wide_to_string(String& dst, Span<const wchar_t> src)
+{
+	size_t convertedChars;
+	wcstombs_s(&convertedChars, dst.data, dst.cap, src.data, src.num);
+	dst.num = convertedChars - 1;
+}
 
-	template<typename T>
-	internal T* find_last(T* first, T* last, T cmp)
-	{
-		//Because we find the last, we iterate on reverse. So the first time we find a valid cmp, we bail
-		T* cursor{ last };
-		T* ret{ };
-		for (; cursor != first; cursor--)
-		{
-			if (*cursor == cmp)
-			{
-				ret = cursor;
-				break;
-			}
-		}
+using namespace std;
 
-		return ret;
-	}
+static constexpr size_t PATH_MAX_BUFFER{ 128 };
+static constexpr size_t MAX_DEFINES{ 32 };
+static constexpr size_t DEFINES_MAX_BUFFER{ 64 };
+static constexpr size_t ENTRY_POINT_MAX_BUFFER{ 32 };
 
+static constexpr const wchar_t OUTPUT_EXTENSION[]{ L".bin" };
+static constexpr size_t OUTPUT_EXTENSION_SIZE{ _countof(OUTPUT_EXTENSION) - 1 };
+static constexpr const wchar_t DEBUG_EXTENSION[]{ L".pdb" };
+static constexpr size_t DEBUG_EXTENSION_SIZE{ _countof(DEBUG_EXTENSION) - 1 };
+static constexpr const char SHADER_EXTENSION[]{ ".hlsl" };
+static constexpr size_t SHADER_EXTENSION_SIZE{ _countof(SHADER_EXTENSION) - 1 };
 
-	template<typename T>
-	struct str
-	{
-		T* data;
-		int32_t num;
-		int32_t cap;
+struct shaderEntry
+{
+	const char* path; // the path is relative to the source code assets/shaders folder.
+	const wchar_t* entryPoint;
+	eShaderType type;
+};
 
-		operator Span<T>()
-		{
-			return Span<T>{.data = data, .num = num };
-		}
+static constexpr shaderEntry entries[]{
+	shaderEntry{.path = "basic.hlsl", .entryPoint = L"VSMain", .type = eShaderType::Vertex},
+	shaderEntry{.path = "basic.hlsl", .entryPoint = L"PSMain", .type = eShaderType::Pixel},
+	shaderEntry{.path = "pollaycojones/basicDentro.hlsl", .entryPoint = L"VSMain", .type = eShaderType::Vertex }
+};
 
-		template<typename T>
-		operator Span<const T>()
-		{
-			return Span<const T>{.data = data, .num = num }; 
-		}
-	};
+static constexpr std::int32_t NUM_SHADER_ENTRIES{ sizeof(entries) / sizeof(shaderEntry) };
 
-	using String = str<char>;
-	using WString = str<wchar_t>;
-
-	internal void string_to_wide(WString& dst, Span<const char> src)
-	{
-		size_t convertedChars; //do something with this I guess?
-		mbstowcs_s(&convertedChars, dst.data, dst.cap, src.data, src.num);
-		dst.num = convertedChars - 1;
-	}
-
-
-	internal void wide_to_string(String& dst, Span<const wchar_t> src)
-	{
-		size_t convertedChars;
-		wcstombs_s(&convertedChars, dst.data, dst.cap, src.data, src.num);
-		dst.num = convertedChars - 1;
-	}
-
-	using namespace std;
-
-	static constexpr size_t PATH_MAX_BUFFER{ 128 };
-	static constexpr size_t MAX_DEFINES{ 32 };
-	static constexpr size_t DEFINES_MAX_BUFFER{ 64 };
-	static constexpr size_t ENTRY_POINT_MAX_BUFFER{ 32 };
-
-	static constexpr const wchar_t OUTPUT_EXTENSION[]{ L".bin" };
-	static constexpr size_t OUTPUT_EXTENSION_SIZE{ _countof(OUTPUT_EXTENSION) - 1 };
-	static constexpr const wchar_t DEBUG_EXTENSION[]{ L".pdb" };
-	static constexpr size_t DEBUG_EXTENSION_SIZE{ _countof(DEBUG_EXTENSION) - 1 };
-	static constexpr const char SHADER_EXTENSION[]{ ".hlsl" };
-	static constexpr size_t SHADER_EXTENSION_SIZE{ _countof(SHADER_EXTENSION) - 1 };
-
-	struct shaderEntry
-	{
-		const char* path; // the path is relative to the source code assets/shaders folder.
-		const wchar_t* entryPoint;
-		eShaderType type;
-	};
-
-	static constexpr shaderEntry entries[]{
-		shaderEntry{.path = "basic.hlsl", .entryPoint = L"VSMain", .type = eShaderType::Vertex},
-		shaderEntry{.path = "basic.hlsl", .entryPoint = L"PSMain", .type = eShaderType::Pixel},
-		shaderEntry{.path = "pollaycojones/basicDentro.hlsl", .entryPoint = L"VSMain", .type = eShaderType::Vertex }
-	};
-
-	static constexpr std::int32_t NUM_SHADER_ENTRIES{ sizeof(entries) / sizeof(shaderEntry) };
 
 #ifdef PROJECT_COMPILE
 
@@ -201,7 +200,6 @@ namespace {
 
 #endif
 
-}
 
 // Arguments:
 /*
@@ -439,7 +437,7 @@ int main(int argc, char* argv[])
 		compileParams.add(L"-T");
 		compileParams.add(ShaderTypeToString(entry.type));
 
-		str<const char> entryPath{.data = entry.path, .num = static_cast<int32_t>(strlen(entry.path)), .cap = PATH_MAX_BUFFER };
+		str<const char> entryPath{.data = entry.path, .num = strlen(entry.path), .cap = PATH_MAX_BUFFER };
 
 		if (entryPath.num > (PATH_MAX_BUFFER - 1))//leave space for the null-terminator
 		{
@@ -492,7 +490,7 @@ int main(int argc, char* argv[])
 
 		//concatenate -F path + shader.path (without the name)
 		{//append the slash and change the trailing extension
-			int32_t slashLoc{ outputPath.num };
+			size_t slashLoc{ outputPath.num };
 			outputPath.data[slashLoc] = L'\\';
 			size_t trimmedExtensionNum{ widePath.num - SHADER_EXTENSION_SIZE };
 			memcpy(outputPath.data + slashLoc + 1, widePath.data, sizeof(wchar_t) * trimmedExtensionNum);
@@ -504,7 +502,7 @@ int main(int argc, char* argv[])
 		}
 
 		
-		if (int32_t diff{ ExecutablePath.num + outputPath.num + 1 - MAX_PATH }; diff > 0)
+		if (int32_t diff{ static_cast<int32_t>(ExecutablePath.num + outputPath.num + 1 - MAX_PATH) }; diff > 0)
 		{
 			char buff1[MAX_PATH];
 			char buff2[MAX_PATH];
@@ -565,7 +563,7 @@ int main(int argc, char* argv[])
 		{
 			char entryPointBuffer[ENTRY_POINT_MAX_BUFFER + 1];
 			String tempEntryPoint{ .data = entryPointBuffer, .num = 0, .cap = ENTRY_POINT_MAX_BUFFER + 1 };
-			wide_to_string(tempEntryPoint, Span<const wchar_t>{.data = entry.entryPoint, .num = static_cast<int32_t>(wcslen(entry.entryPoint))});
+			wide_to_string(tempEntryPoint, Span<const wchar_t>{.data = entry.entryPoint, .num = wcslen(entry.entryPoint)});
 		
 			LOG_INFO(logger, "Shader \"{}\" compilation started.Entry point: \"{}\"", entry.path, tempEntryPoint.data);
 		}
