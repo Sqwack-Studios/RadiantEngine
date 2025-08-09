@@ -17,6 +17,7 @@
 #include <fstream>
 #include <string_view>
 #include <iostream>
+
 #include "quill/Frontend.h"
 #include "quill/Backend.h"
 #include "quill/LogMacros.h"
@@ -24,180 +25,214 @@
 
 using namespace Microsoft::WRL;
 
-//TODO: HRESULTS + logging
-//TODO: D3D12 Calls + logging 
+#define global static //use this when declaring a global variable
+#define persistent static //use this when declaring a variable with persistent memory locally in a function 
+#define internal static //use this when declaring a function to be internally linked to the scope of the translation unit
 
-template<typename T, int32_t N>
-struct StackArray
-{
-	T Data[N];
-	int32_t Num;
-
-	static constexpr int32_t Capacity() { return N; }
-};
-
-template<size_t N>
-using LocalString = StackArray<char, N>;
-
-template<size_t N>
-using WLocalString = StackArray<wchar_t, N>;
+namespace {
 
 
-enum eShaderType : std::uint8_t {
-	Vertex = 0,
-	Hull,
-	Domain,
-	Geometry,
-	Pixel,
-	Compute,
-	Mesh,
-	NUM
-};
-
-//vs, ps, ds, hs, gs, cs, ms, lib; 6_0 - 6_7
-static constexpr const wchar_t* ShaderTypeToString(eShaderType type)
-{
-	const wchar_t* ret{L"Unknown shader type"};
-
-	switch (type)
+	template<typename T, typename U>
+	struct same_type
 	{
-	case Vertex:
-	{
-		ret = L"vs_6_7";
-		break;
-	}
-	case Hull:
-	{
-		ret = L"hs_6_7";
-		break;
-	}
-	case Domain:
-	{
-		ret = L"ds_6_7";
-		break;
-	}
-	case Geometry:
-	{
-		ret = L"gs_6_7";
-		break;
-	}
-	case Pixel:
-	{
-		ret = L"ps_6_7";
-		break;
-	}
-	case Compute:
-	{
-		ret = L"cs_6_7";
-		break;
-	}
-	case Mesh:
-	{
-		ret = L"ms_6_7";
-		break;
-	}
-	default:
-		break;
-	}
+		static constexpr bool val{ false };
+	};
 
-	return ret;
-}
+	template<typename T>
+	struct same_type<T, T>
+	{
+		static constexpr bool val{ true };
+	};
+
+	template<typename T, typename U>
+	static constexpr bool same_type_v = same_type<T, U>::val;
 
 
-//Length accounts for the number of characters to check, but must not be longer than the size of the string. This function
-//doesn't check for the null terminator character
-static void ReplaceAllCharOccurrences(char* string, int32_t length, const char cmp, const char replace)
-{
-	char* cursor{ string };
-	char* end{ string + length };
-
-	while (cursor < end)
+	template<typename T>
+	struct Span
 	{
-		char val{ *cursor };
+		T* data;
+		int32_t num;
+	};
 
-		if (val == cmp)
+
+	//only for POD types
+	//no bounds checking anywhere
+	template<typename T, int32_t N>
+	struct StackArray
+	{
+		T data[N];
+		int32_t num;
+
+		void add(T item)
 		{
-			*cursor = replace;
+			data[num] = item;
+			num++;
 		}
 
-		cursor++;
-	}
-}
+		//void add(T* items, int32_t itemsNum)
+		//{
+		//	
+		//	if constexpr (same_type_v<T, wchar_t>)
+		//	{
+		//		wmemcpy(data[num], items, itemsNum * sizeof(wchar_t);
+		//	}
+		//	else
+		//	{
+		//		memcpy(data[num], items, itemsNum * sizeof(T));
+		//	}
+		//
+		//	num += itemsNum;
+		//}
 
-template<typename T>
-static void replace_all(T* first, const T* last, const T cmp, const T replace)
-{
-	T* cursor{ first };
-	for(; cursor != last; ++cursor)
+		T& operator[](int32_t i) { return data[i]; }
+		const T& operator[](int32_t i) const { return data[i]; }
+	};
+
+
+	enum eShaderType : std::uint8_t {
+		Vertex = 0,
+		Hull,
+		Domain,
+		Geometry,
+		Pixel,
+		Compute,
+		Mesh,
+		NUM
+	};
+
+	//vs, ps, ds, hs, gs, cs, ms, lib; 6_0 - 6_7
+	static constexpr const wchar_t* ShaderTypeToString(eShaderType type)
 	{
-		if (*cursor == cmp)
-		{
-			*cursor = replace;
-		}
+		constexpr const wchar_t* lut[]{
+			L"vs_6_7",
+			L"hs_6_7",
+			L"ds_6_7",
+			L"gs_6_7",
+			L"ps_6_7",
+			L"cs_6_7",
+			L"ms_6_7",
+			L"Unknown shader type"
+
+		};
+		return lut[type];
 	}
-}
 
 
-template<typename T>
-static T* find_last(const T* first, T* last, const T cmp)
-{
-	//Because we find the last, we iterate on reverse. So the first time we find a valid cmp, we bail
-	T* cursor{ last };
-
-	T* ret{};
-	for (; cursor != first; cursor--)
+	template<typename T>
+	internal void replace_all(T* first, const T* last, const T cmp, const T replace)
 	{
-		if (*cursor == cmp)
+		T* cursor{ first };
+		for (; cursor != last; ++cursor)
 		{
-			ret = cursor;
-			break;
+			if (*cursor == cmp)
+			{
+				*cursor = replace;
+			}
 		}
 	}
 
-	return ret;
-}
+	template<typename T>
+	internal T* find_last(T* first, T* last, T cmp)
+	{
+		//Because we find the last, we iterate on reverse. So the first time we find a valid cmp, we bail
+		T* cursor{ last };
+		T* ret{ };
+		for (; cursor != first; cursor--)
+		{
+			if (*cursor == cmp)
+			{
+				ret = cursor;
+				break;
+			}
+		}
 
-using namespace std;
+		return ret;
+	}
 
-static constexpr int32_t PATH_MAX_BUFFER{ 128 };
-static constexpr int32_t MAX_DEFINES{ 32 };
-static constexpr int32_t DEFINES_MAX_BUFFER{ 64 };
-static constexpr int32_t ENTRY_POINT_MAX_BUFFER{ 31 };
-static constexpr const wchar_t OUTPUT_EXTENSION[]{ L"bin" };
-static constexpr int32_t OUTPUT_EXTENSION_SIZE{ _countof(OUTPUT_EXTENSION) - 1 };
-static constexpr const char SHADER_EXTENSION[]{ "hlsl" };
-static constexpr int32_t SHADER_EXTENSION_SIZE{ _countof(SHADER_EXTENSION) - 1 };
 
-struct shaderEntry
-{
-	const char* path; // the path is relative to the source code assets/shaders folder.
-	const wchar_t* entryPoint;
-	eShaderType type;
-};
+	template<typename T>
+	struct str
+	{
+		T* data;
+		int32_t num;
+		int32_t cap;
 
-static constexpr shaderEntry entries[]{
-	shaderEntry{ .path = "basic.hlsl", .entryPoint = L"VSMain", .type = eShaderType::Vertex},
-	shaderEntry{ .path = "basic.hlsl", .entryPoint = L"PSMain", .type = eShaderType::Pixel},
-	shaderEntry{ .path = "pollaycojones/basicDentro.hlsl", .entryPoint = L"VSMain", .type = eShaderType::Vertex }
-};
+		operator Span<T>()
+		{
+			return Span<T>{.data = data, .num = num };
+		}
 
-static constexpr std::int32_t NUM_SHADER_ENTRIES{ sizeof(entries) / sizeof(shaderEntry) };
+		template<typename T>
+		operator Span<const T>()
+		{
+			return Span<const T>{.data = data, .num = num }; 
+		}
+	};
+
+	using String = str<char>;
+	using WString = str<wchar_t>;
+
+	internal void string_to_wide(WString& dst, Span<const char> src)
+	{
+		size_t convertedChars; //do something with this I guess?
+		mbstowcs_s(&convertedChars, dst.data, dst.cap, src.data, src.num);
+		dst.num = convertedChars - 1;
+	}
+
+
+	internal void wide_to_string(String& dst, Span<const wchar_t> src)
+	{
+		size_t convertedChars;
+		wcstombs_s(&convertedChars, dst.data, dst.cap, src.data, src.num);
+		dst.num = convertedChars - 1;
+	}
+
+	using namespace std;
+
+	static constexpr size_t PATH_MAX_BUFFER{ 128 };
+	static constexpr size_t MAX_DEFINES{ 32 };
+	static constexpr size_t DEFINES_MAX_BUFFER{ 64 };
+	static constexpr size_t ENTRY_POINT_MAX_BUFFER{ 32 };
+	static constexpr const wchar_t OUTPUT_EXTENSION[]{ L".bin" };
+	static constexpr size_t OUTPUT_EXTENSION_SIZE{ _countof(OUTPUT_EXTENSION) - 1 };
+	static constexpr const wchar_t DEBUG_EXTENSION[]{ L".pdb" };
+	static constexpr size_t DEBUG_EXTENSION_SIZE{ _countof(DEBUG_EXTENSION) - 1 };
+	static constexpr const char SHADER_EXTENSION[]{ ".hlsl" };
+	static constexpr size_t SHADER_EXTENSION_SIZE{ _countof(SHADER_EXTENSION) - 1 };
+
+	struct shaderEntry
+	{
+		const char* path; // the path is relative to the source code assets/shaders folder.
+		const wchar_t* entryPoint;
+		eShaderType type;
+	};
+
+	static constexpr shaderEntry entries[]{
+		shaderEntry{.path = "basic.hlsl", .entryPoint = L"VSMain", .type = eShaderType::Vertex},
+		shaderEntry{.path = "basic.hlsl", .entryPoint = L"PSMain", .type = eShaderType::Pixel},
+		shaderEntry{.path = "pollaycojones/basicDentro.hlsl", .entryPoint = L"VSMain", .type = eShaderType::Vertex }
+	};
+
+	static constexpr std::int32_t NUM_SHADER_ENTRIES{ sizeof(entries) / sizeof(shaderEntry) };
 
 #ifdef PROJECT_COMPILE
 
-static constexpr const wchar_t* DX_LIB_PATH{ L"../../../vendor/dxc/bin/dxcompiler.dll" };
-static constexpr const wchar_t SHADERS_FOLDER_PATHW[]{ L"../../../assets/shaders" };
-static constexpr const char SHADERS_FOLDER_PATH[]{ "../../../assets/shaders" };
+	static constexpr const wchar_t* DX_LIB_PATH{ L"../../../vendor/dxc/bin/dxcompiler.dll" };
+	static constexpr const wchar_t SHADERS_FOLDER_PATHW[]{ L"../../../assets/shaders" };
+	static constexpr const char SHADERS_FOLDER_PATH[]{ "../../../assets/shaders" };
 
 
 #else
 
-static constexpr const wchar_t* DX_LIB_PATH{ L"vendor/dxc/bin/dxcompiler.dll" };
-static constexpr const wchar_t SHADERS_FOLDER_PATHW[]{ L"assets/shaders" };
-static constexpr const char SHADERS_FOLDER_PATH[]{ "assets/shaders" };
+	static constexpr const wchar_t* DX_LIB_PATH{ L"vendor/dxc/bin/dxcompiler.dll" };
+	static constexpr const wchar_t SHADERS_FOLDER_PATHW[]{ L"assets/shaders" };
+	static constexpr const char SHADERS_FOLDER_PATH[]{ "assets/shaders" };
 
 
 #endif
+
+}
 
 // Arguments:
 /*
@@ -208,33 +243,60 @@ static constexpr const char SHADERS_FOLDER_PATH[]{ "assets/shaders" };
 */
 int main(int argc, char* argv[])
 {
-	quill::PatternFormatterOptions loggerPattern{
+	quill::Logger* logger;
+	quill::Backend::start();
+
+	
+		quill::PatternFormatterOptions loggerPattern{
 		std::string{ "%(time) [%(thread_id)] %(log_level) "
 					"%(message) "},
 		std::string{"%H:%M:%S.%Qms"},
 		quill::Timezone::LocalTime,
 		false
-	};
+		};
 
-	quill::ConsoleSinkConfig::Colours sinkColours{};
+		quill::ConsoleSinkConfig::Colours sinkColours{};
 
-	sinkColours.apply_default_colours();
+		sinkColours.apply_default_colours();
 
-	sinkColours.assign_colour_to_log_level(quill::LogLevel::TraceL3, quill::ConsoleSinkConfig::Colours::white);
-	sinkColours.assign_colour_to_log_level(quill::LogLevel::TraceL2, quill::ConsoleSinkConfig::Colours::white);
-	sinkColours.assign_colour_to_log_level(quill::LogLevel::TraceL1, quill::ConsoleSinkConfig::Colours::white);
-	sinkColours.assign_colour_to_log_level(quill::LogLevel::Debug, quill::ConsoleSinkConfig::Colours::green);
-	sinkColours.assign_colour_to_log_level(quill::LogLevel::Info, quill::ConsoleSinkConfig::Colours::cyan);
+		sinkColours.assign_colour_to_log_level(quill::LogLevel::TraceL3, quill::ConsoleSinkConfig::Colours::white);
+		sinkColours.assign_colour_to_log_level(quill::LogLevel::TraceL2, quill::ConsoleSinkConfig::Colours::white);
+		sinkColours.assign_colour_to_log_level(quill::LogLevel::TraceL1, quill::ConsoleSinkConfig::Colours::white);
+		sinkColours.assign_colour_to_log_level(quill::LogLevel::Debug, quill::ConsoleSinkConfig::Colours::green);
+		sinkColours.assign_colour_to_log_level(quill::LogLevel::Info, quill::ConsoleSinkConfig::Colours::cyan);
 
-	quill::ConsoleSinkConfig csinkConfig{};
-	csinkConfig.set_colours(sinkColours);
+		quill::ConsoleSinkConfig csinkConfig{};
+		csinkConfig.set_colours(sinkColours);
+
+
+		logger = quill::Frontend::create_or_get_logger(
+			"root", quill::Frontend::create_or_get_sink<quill::ConsoleSink>("sink_id_1", csinkConfig), loggerPattern);
+
 	
 
-	quill::Backend::start();
-	quill::Logger* logger = quill::Frontend::create_or_get_logger(
-		"root", quill::Frontend::create_or_get_sink<quill::ConsoleSink>("sink_id_1", csinkConfig), loggerPattern);
+	//Initialize all the buffers
+	wchar_t executablePathBuffer[MAX_PATH]{ L"\0" };
+	wchar_t definesBuffers[MAX_DEFINES][DEFINES_MAX_BUFFER];
+	char outputFolderBuffer[PATH_MAX_BUFFER]{ "\0" };
 
-	
+	//Initialize the strings
+	WString ExecutablePath{ .data = executablePathBuffer, .num = 0, .cap = MAX_PATH };
+	ExecutablePath.num = GetModuleFileName(NULL, ExecutablePath.data, MAX_PATH);
+	{//Trim the executable part and leave the absolute directory path
+		wchar_t* end{ ExecutablePath.data + ExecutablePath.num };
+		wchar_t* lastBackSlash{ find_last<wchar_t>(ExecutablePath.data, ExecutablePath.data + ExecutablePath.num, '\\') };
+		*lastBackSlash = '\0';
+		ExecutablePath.num -= end - lastBackSlash;
+	}
+
+	String outputFolder{ .data = outputFolderBuffer, .num = 0, .cap = PATH_MAX_BUFFER };
+	WString defines[MAX_DEFINES];
+	std::int32_t numDefines{};
+	for (int32_t i{}; i < MAX_DEFINES; i++)
+	{
+		defines[i] = WString{ .data = definesBuffers[i], .num = 0, .cap = DEFINES_MAX_BUFFER };
+	}
+
 	LOG_INFO(logger, "Welcome to the offline compiler!\nAvailable commands:\n"
 		"-F : Output folder where all files will be saved. If a file is contained in a subfolder, then it will be written into -F + /path/to/subfolder/shadername.bin\n"
 		"-D : An array of defines that will be globally setup ( -D DEFINE1=a DEFINE2=b DEFINE3=c ...)\n"
@@ -242,29 +304,12 @@ int main(int argc, char* argv[])
 		"-Zs : Enable debug information. This will generate extra .pdb files\n");
 
 	enum compileFlags : std::uint8_t {
-		F  = 0x1,
-		D  = 0x2,
+		F = 0x1,
+		D = 0x2,
 		Od = 0x4,
 		Zs = 0x8
 	};
 
-
-	WLocalString<MAX_PATH> ExecutablePath;
-	ExecutablePath.Num  = GetModuleFileName(NULL, ExecutablePath.Data, MAX_PATH);
-
-	{//Trim the executable part and leave the absolute directory path
-		wchar_t* end{ ExecutablePath.Data + ExecutablePath.Num };
-		wchar_t* lastBackSlash{ find_last<wchar_t>(ExecutablePath.Data, ExecutablePath.Data + ExecutablePath.Num, '\\') };
-		*lastBackSlash = '\0';
-		ExecutablePath.Num -= end - lastBackSlash;
-	}
-
-	
-	char outputFolder[PATH_MAX_BUFFER]{"\0"};
-	int32_t outputFolderSize{};
-
-	WLocalString<DEFINES_MAX_BUFFER> defines[MAX_DEFINES];
-	std::int32_t numDefines{};
 	std::uint8_t flags{};
 
 	//parse arguments
@@ -282,16 +327,16 @@ int main(int argc, char* argv[])
 			arg = ((i + 1) >= argc) || (argv[i + 1] == "-") ? ignoreMsg : argv[++i];
 			
 
-			std::int32_t bytesToCopy{ static_cast<int32_t>(arg.size()) > (PATH_MAX_BUFFER - 1) ? PATH_MAX_BUFFER - 1 : static_cast<int32_t>(arg.size()) };
+			size_t bytesToCopy{ static_cast<int32_t>(arg.size()) > (PATH_MAX_BUFFER - 1) ? PATH_MAX_BUFFER - 1 : static_cast<int32_t>(arg.size()) };
 
-			memcpy(outputFolder, arg.data(), bytesToCopy);
-			outputFolder[bytesToCopy] = '\0';
-			LOG_INFO(logger, "-F {}", outputFolder);
+			memcpy(outputFolder.data, arg.data(), bytesToCopy);
+			outputFolder.data[bytesToCopy] = '\0';
+			LOG_INFO(logger, "-F {}", outputFolder.data);
 
-			replace_all(outputFolder, outputFolder + bytesToCopy, '/', '\\');
+			replace_all(outputFolder.data, outputFolder.data + bytesToCopy, '/', '\\');
 
+			outputFolder.num = bytesToCopy;
 
-			outputFolderSize = bytesToCopy;
 			flags |= compileFlags::F;
 
 			continue;
@@ -316,10 +361,10 @@ int main(int argc, char* argv[])
 				continue;
 			}
 
-			for (std::int32_t j{i}; j < lastDefineIdx; ++j)
+			for (std::int32_t j{ i }; j < lastDefineIdx; ++j)
 			{
 				std::string_view arg{ argv[j] };
-				
+
 				std::int32_t defineLength{ static_cast<int32_t>(arg.size()) };
 
 				const bool overflows{ defineLength > (DEFINES_MAX_BUFFER - 1) };
@@ -332,9 +377,8 @@ int main(int argc, char* argv[])
 
 				LOG_INFO(logger, "{} registered as a global define", arg);
 
-				size_t convertedChars;
-				mbstowcs_s(&convertedChars, defines[numDefines].Data, arg.data(), DEFINES_MAX_BUFFER);
-				defines[numDefines].Num = static_cast<int32_t>(convertedChars);
+				mbstowcs(defines[numDefines].data, arg.data(), arg.size());
+				defines[numDefines].num = defineLength;
 
 				numDefines++;
 
@@ -346,11 +390,11 @@ int main(int argc, char* argv[])
 		}
 
 
-		if (arg.compare("-Od"))
+		if (arg.compare("-Od") == 0)
 			flags |= compileFlags::Od;
 		
 		
-		if (arg.compare("-Zs"))
+		if (arg.compare("-Zs") == 0)
 			flags |= compileFlags::Zs;
 	}
 
@@ -402,14 +446,13 @@ int main(int argc, char* argv[])
 	static constexpr int32_t NUM_PERMANENT_PARAMETERS{ 4 };
 	StackArray<LPCWSTR, MAX_COMPILE_PARAMS> compileParams;
 	
-	
 	//let's fill first parameters that are not configurable.
 
-	compileParams.Data[0] = L"-Qstrip_debug";
-	compileParams.Data[1] = L"-Qstrip_priv";
-	compileParams.Data[2] = L"-Qstrip_reflect";
-	compileParams.Data[3] = L"-Qstrip_rootsignature";
-	compileParams.Num = NUM_PERMANENT_PARAMETERS;
+	compileParams.data[0] = L"-Qstrip_debug";
+	compileParams.data[1] = L"-Qstrip_priv";
+	compileParams.data[2] = L"-Qstrip_reflect";
+	compileParams.data[3] = L"-Qstrip_rootsignature";
+	compileParams.num = NUM_PERMANENT_PARAMETERS;
 
 	
 	//We have to issue one compilation + dump per loop.
@@ -417,146 +460,149 @@ int main(int argc, char* argv[])
 	//It'd be nice to have a SoA with each shader entry parameter, and compute all needed parameters at once, then just point to the right memory for each 
 	//compilation entry. This way we are always calling the same function for each operation, which is more efficient. Not needed at all but it's fun.
 
-	for (int32_t i{}; i < NUM_SHADER_ENTRIES; ++i, compileParams.Num = NUM_PERMANENT_PARAMETERS)
+	for (int32_t i{}; i < NUM_SHADER_ENTRIES; ++i, compileParams.num = NUM_PERMANENT_PARAMETERS)
 	{
 		const shaderEntry& entry{ entries[i] };
 		
-		LocalString<PATH_MAX_BUFFER> entryPath;
-		entryPath.Num = static_cast<int32_t>(strlen(entry.path));
-		if (entryPath.Num > PATH_MAX_BUFFER)
+		//Get the entry point
+		compileParams.add(L"-E");
+		compileParams.add(entry.entryPoint);
+		//Get the shadadd(
+		compileParams.add(L"-T");
+		compileParams.add(ShaderTypeToString(entry.type));
+
+		str<const char> entryPath{.data = entry.path, .num = static_cast<int32_t>(strlen(entry.path)), .cap = PATH_MAX_BUFFER };
+
+		if (entryPath.num > (PATH_MAX_BUFFER - 1))//leave space for the null-terminator
 		{
-			int32_t diff{ entryPath.Num - PATH_MAX_BUFFER };
+			size_t diff{ entryPath.num - PATH_MAX_BUFFER };
 			LOG_WARNING(logger, "The relative path of the shader entry {} exceeds the limit size by {} characters. Skipping...", entry.path + diff, diff);
 			continue;
 		}
-		strncpy(entryPath.Data, entry.path, PATH_MAX_BUFFER);
 
-		WLocalString<PATH_MAX_BUFFER> widePath;
-		WLocalString<PATH_MAX_BUFFER * 2> outputPath{ .Data = L"\0", .Num = 0 };
-		WLocalString<PATH_MAX_BUFFER * 2> debugPath{ outputPath };
-		int32_t namePathOffset{};
-		int32_t nameSize{};
+		//define all the wide string buffers and strings
+		wchar_t widePathBuffer[PATH_MAX_BUFFER];
+		wchar_t outputPathBuffer[PATH_MAX_BUFFER];
+		wchar_t debugPathBuffer[PATH_MAX_BUFFER];
 
-		//Get the entry point
-		compileParams.Data[compileParams.Num++] = L"-E";
-		compileParams.Data[compileParams.Num++] = entry.entryPoint;
-		//Get the shader type
-		compileParams.Data[compileParams.Num++] = L"-T";
-		compileParams.Data[compileParams.Num++] = ShaderTypeToString(entry.type);
+		WString widePath{.data = widePathBuffer, .num = 0, .cap = PATH_MAX_BUFFER};
+		WString outputPath{ .data = outputPathBuffer, .num = 0, .cap = PATH_MAX_BUFFER };
+		WString debugPath{ .data = debugPathBuffer, .num = 0, .cap = PATH_MAX_BUFFER };
 
+		int32_t namePathOffset{};//defines the offset from the start of the path to the start of the filename
+		int32_t nameSize{};//defines the size of the name excluding the extension (.hlsl, .hlsli, etc...)
+		int32_t extensionSize{};//defines the size of the extension, including the dot "."
 		
 		{//find the first backslash, if it exists
 
-			const char* start{ entryPath.Data };
-			const char* end{ start + entryPath.Num };
-			char* lastBackslash{ (char*)start };
+			const char* start{ entryPath.data };
+			const char* end{ start + entryPath.num };
+			const char* lastBackslash{ find_last<const char>(start, end, '/') };
 
-			for (; lastBackslash != start; lastBackslash--)
-			{
-				char test{ *lastBackslash };
-				if (test == '\\' || test == '/')
-				{
-					break;
-				}
-			}
+			lastBackslash = lastBackslash ? lastBackslash : find_last<const char>(start, end, '\\');
+			lastBackslash = lastBackslash ? lastBackslash : start;
 
-			nameSize = static_cast<int32_t>(end - lastBackslash);
+			const char* extensionLocation{ find_last<const char>(lastBackslash, end, '.') };
+
 			namePathOffset = lastBackslash == start ? 0 : static_cast<int32_t>(lastBackslash - start) + 1;
+			nameSize = static_cast<int32_t>(extensionLocation - lastBackslash);
+			extensionSize = end - extensionLocation;
 		}
 
-
+		//Convert to wide
 		{
-			size_t convertedChars; //do something with this I guess?
-			mbstowcs_s(&convertedChars, widePath.Data, PATH_MAX_BUFFER, entryPath.Data, _TRUNCATE);
-			widePath.Num = static_cast<int32_t>(convertedChars) - 1;
+			string_to_wide(widePath, entryPath);
 		}
+		replace_all(widePath.data, widePath.data + widePath.num, L'/', L'\\');
 
+
+		//If user defined output path, convert it to wide
 		if (flags & compileFlags::F)
 		{
-			size_t convertedChars;
-			mbstowcs_s(&convertedChars, outputPath.Data, PATH_MAX_BUFFER * 2, outputFolder, _TRUNCATE);
-			outputPath.Num = static_cast<int32_t>(convertedChars) - 1;
+			string_to_wide(outputPath, outputFolder);
 		}
 
 		//concatenate -F path + shader.path (without the name)
 		{//append the slash and change the trailing extension
-			int32_t slashLoc{ outputPath.Num };
-			outputPath.Data[slashLoc] = L'/';
-			int32_t trimmedExtensionNum{ widePath.Num - SHADER_EXTENSION_SIZE };
-			memcpy(outputPath.Data + slashLoc + 1, widePath.Data, sizeof(wchar_t) * trimmedExtensionNum);
-			memcpy(outputPath.Data + slashLoc + 1 + trimmedExtensionNum, OUTPUT_EXTENSION, sizeof(wchar_t) * OUTPUT_EXTENSION_SIZE);
+			int32_t slashLoc{ outputPath.num };
+			outputPath.data[slashLoc] = L'\\';
+			size_t trimmedExtensionNum{ widePath.num - SHADER_EXTENSION_SIZE };
+			memcpy(outputPath.data + slashLoc + 1, widePath.data, sizeof(wchar_t) * trimmedExtensionNum);
+			memcpy(outputPath.data + slashLoc + 1 + trimmedExtensionNum, OUTPUT_EXTENSION, sizeof(wchar_t) * OUTPUT_EXTENSION_SIZE);
 
-			outputPath.Num = outputPath.Num + trimmedExtensionNum + 1 /*the slash*/ + OUTPUT_EXTENSION_SIZE;
-			outputPath.Data[outputPath.Num] = '\0';
+			outputPath.num = outputPath.num + trimmedExtensionNum + 1 /*the slash*/ + OUTPUT_EXTENSION_SIZE;
+			outputPath.data[outputPath.num] = '\0';
 			
 		}
 
 		
-		if (int32_t diff{ ExecutablePath.Num + outputPath.Num + 1 - MAX_PATH }; diff > 0)
+		if (int32_t diff{ ExecutablePath.num + outputPath.num + 1 - MAX_PATH }; diff > 0)
 		{
-			LocalString<MAX_PATH> d1;
-			LocalString<MAX_PATH> d2;
-
-			wcstombs(d1.Data, ExecutablePath.Data, MAX_PATH);
-			wcstombs(d2.Data, outputPath.Data, MAX_PATH);
-
+			char buff1[MAX_PATH];
+			char buff2[MAX_PATH];
+			String d1{ .data = buff1, .num = 0, .cap = MAX_PATH };
+			String d2{ .data = buff2, .num = 0, .cap = MAX_PATH };
+		
+			wide_to_string(d1, ExecutablePath);
+			wide_to_string(d2, outputPath);
+		
 			LOG_WARNING(logger, "The full working path {}, concatenated with the relative output directory {} exceeds the limit of {} characters by {}, skipping...", 
-				d1.Data, d2.Data , MAX_PATH, diff);
+				d1.data, d2.data , MAX_PATH, diff);
 			continue;
 		}
-
-
+		
 		//Set the shader name
-		compileParams.Data[compileParams.Num++] = widePath.Data + namePathOffset;
+		compileParams.add(widePath.data + namePathOffset); 
 		//Output file
-		compileParams.Data[compileParams.Num++] = L"-Fo";
-		compileParams.Data[compileParams.Num++] = outputPath.Data;
+		compileParams.add(L"-Fo");
+		compileParams.add(outputPath.data);
 		//Check if we disable optimizations
-		compileParams.Data[compileParams.Num++] = flags & compileFlags::Od ? L"-Od" : L"-O3";
-
+		compileParams.add(flags & compileFlags::Od ? L"-Od" : L"-O3");
+		
 		//Check if we dump debug files, and output them with the same name as the binary output but with another extension
 		if (flags & compileFlags::Zs)
 		{
-			compileParams.Data[compileParams.Num++] = L"-Zs";
-
-			wcscat_s(debugPath.Data, outputPath.Data);
-			wcscpy(debugPath.Data + outputPath.Num - 3, L"pdb");
-			debugPath.Num = outputPath.Num;
-			compileParams.Data[compileParams.Num++] = L"-Fd";
-			compileParams.Data[compileParams.Num++] = debugPath.Data;
+			compileParams.add(L"-Zs");
+			wcscpy(debugPath.data, outputPath.data);
+			wcscpy(debugPath.data + outputPath.num - DEBUG_EXTENSION_SIZE, DEBUG_EXTENSION);
+			debugPath.num = outputPath.num;
+			compileParams.add(L"-Fd");
+			compileParams.add(debugPath.data);
 		}
-
+		
 		//Add global defines. For now, not supporting permutations.
 		if (flags & compileFlags::D)
 		{
-			compileParams.Data[compileParams.Num++] = L"-D";
-
+			compileParams.add(L"-D");
+		
 			for (int32_t i{}; i < numDefines; i++)
 			{
-				compileParams.Data[compileParams.Num++] = defines[i].Data;
+				compileParams.add(defines[i].data);
 			}
 		}
-
+		
 		//Now we are ready to compile
-		WLocalString<PATH_MAX_BUFFER> sourceShaderPath;
+		wchar_t shaderSourcePathBuffer[PATH_MAX_BUFFER];
+		WString sourceShaderPath{ .data = shaderSourcePathBuffer, .num = 0 };
 		{
 			constexpr size_t folderLen{ _countof(SHADERS_FOLDER_PATHW) - 1 };
-			memcpy(sourceShaderPath.Data, SHADERS_FOLDER_PATHW, sizeof(wchar_t) * (folderLen));//dont copy the trailing '\0'
-			sourceShaderPath.Data[folderLen] = L'/';
-			memcpy(sourceShaderPath.Data + (folderLen + 1u), widePath.Data + namePathOffset, sizeof(wchar_t) * nameSize);
-			size_t num{(folderLen + 1u) + nameSize };
-			sourceShaderPath.Data[num] = L'\0';
-			sourceShaderPath.Num = static_cast<int32_t>(num);
+			memcpy(sourceShaderPath.data, SHADERS_FOLDER_PATHW, sizeof(wchar_t) * (folderLen));//dont copy the trailing '\0'
+			sourceShaderPath.data[folderLen] = L'/';
+			memcpy(sourceShaderPath.data + (folderLen + 1u), widePath.data, sizeof(wchar_t) * widePath.num);
+			size_t num{(folderLen + 1u) + widePath.num };
+			sourceShaderPath.data[num] = L'\0';
+			sourceShaderPath.num = static_cast<int32_t>(num);
 		}
-
+		
 		{
-			LocalString<ENTRY_POINT_MAX_BUFFER + 1> tempEntryPoint;
-			wcstombs(tempEntryPoint.Data, entry.entryPoint, ENTRY_POINT_MAX_BUFFER);
-
-			LOG_INFO(logger, "Shader \"{}\" compilation started.Entry point: \"{}\"", entry.path, tempEntryPoint.Data);
+			char entryPointBuffer[ENTRY_POINT_MAX_BUFFER + 1];
+			String tempEntryPoint{ .data = entryPointBuffer, .num = 0, .cap = ENTRY_POINT_MAX_BUFFER + 1 };
+			wide_to_string(tempEntryPoint, Span<const wchar_t>{.data = entry.entryPoint, .num = static_cast<int32_t>(wcslen(entry.entryPoint))});
+		
+			LOG_INFO(logger, "Shader \"{}\" compilation started.Entry point: \"{}\"", entry.path, tempEntryPoint.data);
 		}
-
-		std::ifstream file{ sourceShaderPath.Data,std::ios::binary | std::ios::ate | std::ios::in };
+		
+		std::ifstream file{ sourceShaderPath.data,std::ios::binary | std::ios::ate | std::ios::in };
 		char shaderBlob[81920]; //4KB
 		if (!file.is_open())
 		{
@@ -564,34 +610,34 @@ int main(int argc, char* argv[])
 			continue;
 			
 		}
-		std::uint32_t size{ static_cast<std::uint32_t>(file.tellg()) };
+		uint32_t size{ static_cast<std::uint32_t>(file.tellg()) };
 		file.seekg(0, std::ios::beg);
 		file.read(shaderBlob, size);
 		file.close();
-
+		
 		const DxcBuffer dxcBuff{
 		.Ptr = shaderBlob,
 		.Size = size,
 		.Encoding = DXC_CP_UTF8
 		};
-
+		
 		ComPtr<IDxcResult> compileResult;
-		dxCompiler->Compile(&dxcBuff, compileParams.Data, compileParams.Num, nullptr, IID_PPV_ARGS(&compileResult));
-
+		dxCompiler->Compile(&dxcBuff, compileParams.data, compileParams.num, nullptr, IID_PPV_ARGS(&compileResult));
+		
 		HRESULT hrStatus;
 		compileResult->GetStatus(&hrStatus);
-
+		
 		ComPtr<IDxcBlobUtf8> pErrors = nullptr;
 		compileResult->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&pErrors), nullptr);
 		
-
+		
 		if (!SUCCEEDED(hrStatus))
 		{
 			LOG_WARNING(logger, "Compilation failed, dumping errors and skipping...\n{}", pErrors->GetStringPointer());
 			continue;
 		}
-
-
+		
+		
 		if (pErrors->GetStringLength() > 0)
 		{
 			LOG_WARNING(logger, "Compilation succeeded, warnings have been generated\n{}",pErrors->GetStringPointer());
@@ -600,78 +646,54 @@ int main(int argc, char* argv[])
 		{
 			LOG_INFO(logger, "Compilation succeeded!");
 		}
-
+		
+		
+		
+		wchar_t fullPathBuffer[MAX_PATH]{L"\0"};
+		WString fullPath{.data = fullPathBuffer, .num = 0, .cap = MAX_PATH };
+		wcsncat(fullPath.data, ExecutablePath.data, ExecutablePath.num);
+		fullPath.num = ExecutablePath.num;
+		wcsncat(fullPath.data, outputPath.data, outputPath.num - (OUTPUT_EXTENSION_SIZE + nameSize));
+		fullPath.num += outputPath.num - (OUTPUT_EXTENSION_SIZE + nameSize);
+		replace_all(fullPath.data, fullPath.data + fullPath.num, L'/', L'\\');
+		
+		int webo{ SHCreateDirectory(NULL, fullPath.data) };
+		
 		ComPtr<IDxcBlob> outShader;
-
 		compileResult->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&outShader), nullptr);
 
-		WLocalString<MAX_PATH> fullPath{};
+		wcsncat(fullPath.data, outputPath.data + outputPath.num - (nameSize + OUTPUT_EXTENSION_SIZE), nameSize + OUTPUT_EXTENSION_SIZE);
+		fullPath.num += nameSize + OUTPUT_EXTENSION_SIZE;
+		
+		replace_all(fullPath.data, fullPath.data + fullPath.num, L'/', L'\\');
+		
+		if (outShader)
+		{
+			FILE* fp{};
+	
+			int result{ _wfopen_s(&fp, fullPath.data, L"wb") };
+			fwrite(outShader->GetBufferPointer(), outShader->GetBufferSize(), 1, fp);
+			fclose(fp);
+		
+		}
 
-		wcsncat(fullPath.Data, ExecutablePath.Data, ExecutablePath.Num);
-		fullPath.Num = ExecutablePath.Num;
-		//wcsncat(fullPath.Data, outputPath.Data, concatOutputPathSize - 1);
-		//fullPath.Num += concatOutputPathSize - 1;
+		if (flags & compileFlags::Zs)
+		{
+			ComPtr<IDxcBlob> outPdb{};
+			compileResult->GetOutput(DXC_OUT_PDB, IID_PPV_ARGS(&outPdb), nullptr);
 
-		//TODO: Rework the paths so the always start with backslash but never finish with one
-		//TODO: Get executable path, not working directory
-		int webo{ SHCreateDirectory(NULL, fullPath.Data) };
+			if (outPdb)
+			{
+				FILE* fp{};
 
+				wcscpy(fullPath.data + fullPath.num - DEBUG_EXTENSION_SIZE, DEBUG_EXTENSION);
+				int result{ _wfopen_s(&fp, fullPath.data, L"wb") };
+				fwrite(outPdb->GetBufferPointer(), outPdb->GetBufferSize(), 1, fp);
+				fclose(fp);
+			}
 
-		//Get the .pdb if applies
-		//Create folder if doesn't exist
-		//write binarie
-		//write pdb if applies
+		}
 	}
-
-	
-
-	//int webo{ SHCreateDirectory(NULL, L"polla/metida/en/mi/culeteeee") };
-
-
-	//ComPtr<IDxcBlob> pShader = nullptr;
-	//ComPtr<IDxcBlobUtf16> pShaderName = nullptr;
-	//compileResult->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&pShader), &pShaderName);
-	//
-	
-	//
-	//auto webo{ pErrors->GetStringPointer() };
-	//auto webo2{ pShaderName->GetStringPointer() };
-	//// Note that d3dcompiler would return null if no errors or warnings are present.
-	//// IDxcCompiler3::Compile will always return an error buffer, but its length
-	//// will be zero if there are no warnings or errors.
-	//if (pErrors != nullptr && pErrors->GetStringLength() != 0)
-	//	LOG_INFO(logger, "Compiling errors: {}", webo);
-	//
-	//
-	//compileResult->GetStatus(&hrStatus);
-	//if (FAILED(hrStatus))
-	//{
-	//	LOG_CRITICAL(logger, "Compilation Failed\n");
-	//	return 0;
-	//}
-	//
-	//ComPtr<IDxcBlob> pPDB = nullptr;
-	//ComPtr<IDxcBlobUtf16> pPDBName = nullptr;
-	//compileResult->GetOutput(DXC_OUT_PDB, IID_PPV_ARGS(&pPDB), &pPDBName);
-	//{
-	//	FILE* fp = NULL;
-	//
-	//	// Note that if you don't specify -Fd, a pdb name will be automatically generated.
-	//	// Use this file name to save the pdb so that PIX can find it quickly.
-	//	_wfopen_s(&fp, pPDBName->GetStringPointer(), L"wb");
-	//	fwrite(pPDB->GetBufferPointer(), pPDB->GetBufferSize(), 1, fp);
-	//	fclose(fp);
-	//}
-	//if (pShader != nullptr)
-	//{
-	//	FILE* fp = NULL;
-	//
-	//	_wfopen_s(&fp, pShaderName->GetStringPointer(), L"wb");
-	//	fwrite(pShader->GetBufferPointer(), pShader->GetBufferSize(), 1, fp);
-	//	fclose(fp);
-	//
-	//}
-
 
 	return 0;
 }
