@@ -1,5 +1,5 @@
-#ifndef _BASIC_HLSL_
-#define _BASIC_HLSL_
+#ifndef _BASIC_VS_HLSL_
+#define _BASIC_VS_HLSL_
 
 struct VSin
 {
@@ -24,8 +24,4 @@ VSOut VSMain(VSin vin)
 }
 
 
-float3 PSMain(VSOut vout) : SV_Target0
-{
-    return vout.color;
-}
-#endif //_BASIC_HLSL_
+#endif //_BASIC_VS_HLSL_
