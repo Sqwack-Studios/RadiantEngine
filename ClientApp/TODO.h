@@ -8,7 +8,9 @@
 //TODO[high prio]: Abstract Quill so they don't expose STL types and pollute everything? Search alternatives otherwise? 
 //TODO[high prio]: Explore how to do Jumbo builds
 
-//TODO...
+//TODO[mid prio]: Move shaders to a registry file that can be used for the runtime and the offline shader compilation step, so
+//it's not necessary to trigger shader compiler recompilation
+
 
 
 

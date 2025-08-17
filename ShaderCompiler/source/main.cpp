@@ -161,7 +161,7 @@ static constexpr size_t MAX_DEFINES{ 32 };
 static constexpr size_t DEFINES_MAX_BUFFER{ 64 };
 static constexpr size_t ENTRY_POINT_MAX_BUFFER{ 32 };
 
-static constexpr const wchar_t OUTPUT_EXTENSION[]{ L".bin" };
+static constexpr const wchar_t OUTPUT_EXTENSION[]{ L".cso" };
 static constexpr size_t OUTPUT_EXTENSION_SIZE{ _countof(OUTPUT_EXTENSION) - 1 };
 static constexpr const wchar_t DEBUG_EXTENSION[]{ L".pdb" };
 static constexpr size_t DEBUG_EXTENSION_SIZE{ _countof(DEBUG_EXTENSION) - 1 };
@@ -178,7 +178,6 @@ struct shaderEntry
 static constexpr shaderEntry entries[]{
 	shaderEntry{.path = "basic.hlsl", .entryPoint = L"VSMain", .type = eShaderType::Vertex},
 	shaderEntry{.path = "basic.hlsl", .entryPoint = L"PSMain", .type = eShaderType::Pixel},
-	shaderEntry{.path = "pollaycojones/basicDentro.hlsl", .entryPoint = L"VSMain", .type = eShaderType::Vertex }
 };
 
 static constexpr std::int32_t NUM_SHADER_ENTRIES{ sizeof(entries) / sizeof(shaderEntry) };

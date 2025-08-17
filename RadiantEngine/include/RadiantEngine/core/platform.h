@@ -8,7 +8,6 @@
 #ifndef RE_PLATFORM_H
 #define	RE_PLATFORM_H
 
-#define global static //use this when declaring a global variable
 #define persistent static //use this when declaring a variable with persistent memory locally in a function 
 #define internal static //use this when declaring a function to be internally linked to the scope of the translation unit
 
