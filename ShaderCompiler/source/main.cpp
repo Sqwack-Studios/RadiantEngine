@@ -176,8 +176,8 @@ struct shaderEntry
 };
 
 static constexpr shaderEntry entries[]{
-	shaderEntry{.path = "basic.hlsl", .entryPoint = L"VSMain", .type = eShaderType::Vertex},
-	shaderEntry{.path = "basic.hlsl", .entryPoint = L"PSMain", .type = eShaderType::Pixel},
+	shaderEntry{.path = "basicVS.hlsl", .entryPoint = L"VSMain", .type = eShaderType::Vertex},
+	shaderEntry{.path = "basicPS.hlsl", .entryPoint = L"PSMain", .type = eShaderType::Pixel},
 };
 
 static constexpr std::int32_t NUM_SHADER_ENTRIES{ sizeof(entries) / sizeof(shaderEntry) };
@@ -639,6 +639,7 @@ int main(int argc, char* argv[])
 			int result{ _wfopen_s(&fp, fullPath.data, L"wb") };
 			fwrite(outShader->GetBufferPointer(), outShader->GetBufferSize(), 1, fp);
 			fclose(fp);
+			
 		
 		}
 
