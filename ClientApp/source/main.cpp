@@ -12,7 +12,7 @@
 #include <dxgi1_6.h>
 #include <dxgidebug.h>
 #include <d3d12.h>
-#include <d3dcompiler.h>
+
 
 
 //STD lib
@@ -33,52 +33,66 @@ using namespace Microsoft::WRL;
 
 using namespace RE;
 
-static constexpr fp32 ASPECT_RATIO{ 16.f / 9.f };
-static constexpr int16 INITIAL_HEIGHT{ 1080 };
-static constexpr int16 INITIAL_WIDTH{ static_cast<int16>(INITIAL_HEIGHT * ASPECT_RATIO) };
-static constexpr int8 NUM_FRAMES{ 3 };
-static constexpr wchar_t WINDOW_NAME[]{ L"FedeGordo" };
+internal constexpr fp32 ASPECT_RATIO{ 16.f / 9.f };
+internal constexpr int16 INITIAL_HEIGHT{ 1080 };
+internal constexpr int16 INITIAL_WIDTH{ static_cast<int16>(INITIAL_HEIGHT * ASPECT_RATIO) };
+internal constexpr int8 NUM_FRAMES{ 3 };
+internal constexpr wchar_t WINDOW_NAME[]{ L"FedeGordo" };
+
+template<typename T>
+internal constexpr T* ShaderRegistryPath();
+
+template<>
+internal constexpr const char* ShaderRegistryPath()
+{
+	return "../../shaders";
+}
+template<>
+internal constexpr const wchar_t* ShaderRegistryPath()
+{
+	return L"../../shaders";
+}
 
 
-ComPtr<ID3D12Debug> debugLayer;
-ComPtr<IDXGIDebug1> dxgidebug;
-ComPtr<IDXGIFactory4> factory;
-ComPtr<IDXGIAdapter1> adapter;
-ComPtr<ID3D12Device> device;
-ComPtr<IDXGISwapChain3> swapChain;
-ComPtr<ID3D12CommandAllocator> commandAllocators[NUM_FRAMES];
-ComPtr<ID3D12Resource> backBuffers[NUM_FRAMES];
-ComPtr<ID3D12CommandQueue> directQueue;
-ComPtr<ID3D12GraphicsCommandList> directList;
-ComPtr<ID3D12Fence> directFence;
-ComPtr<ID3D12RootSignature> rootSignature;
-ComPtr<ID3DBlob> vs;
-ComPtr<ID3DBlob> ps;
+internal ComPtr<ID3D12Debug> debugLayer;
+internal ComPtr<IDXGIDebug1> dxgidebug;
+internal ComPtr<IDXGIFactory4> factory;
+internal ComPtr<IDXGIAdapter1> adapter;
+internal ComPtr<ID3D12Device> device;
+internal ComPtr<IDXGISwapChain3> swapChain;
+internal ComPtr<ID3D12CommandAllocator> commandAllocators[NUM_FRAMES];
+internal ComPtr<ID3D12Resource> backBuffers[NUM_FRAMES];
+internal ComPtr<ID3D12CommandQueue> directQueue;
+internal ComPtr<ID3D12GraphicsCommandList> directList;
+internal ComPtr<ID3D12Fence> directFence;
+internal ComPtr<ID3D12RootSignature> rootSignature;
+internal ComPtr<ID3DBlob> vs;
+internal ComPtr<ID3DBlob> ps;
 
-uint64 frameDirectFenceValue[NUM_FRAMES];
-HANDLE directFenceEvent;
+internal uint64 frameDirectFenceValue[NUM_FRAMES];
+internal HANDLE directFenceEvent;
 
-uint8 currentFrame;
-uint32 rtvDescriptorSize;
-bool isFullscreen{ false };
-RECT windowRect;
+internal uint8 currentFrame;
+internal uint32 rtvDescriptorSize;
+internal bool isFullscreen{ false };
+internal RECT windowRect;
 
-ComPtr<ID3D12DescriptorHeap> rtvDescriptorHeap;
-
-
-constexpr float4 red{ 1.0f, 0.0f, 0.0f, 1.0f };
-constexpr float4 green{ 0.f, 1.0f, 0.0f, 1.0f };
-constexpr float4 blue{ 0.f, 0.f, 1.0f, 1.0f };
-constexpr float4 black{ 0.0f, 0.0f, 0.0f, 1.0f };
-
-float4 clearColors[NUM_FRAMES]{ red, green, blue };
+internal ComPtr<ID3D12DescriptorHeap> rtvDescriptorHeap;
 
 
+internal constexpr float4 red{ 1.0f, 0.0f, 0.0f, 1.0f };
+internal constexpr float4 green{ 0.f, 1.0f, 0.0f, 1.0f };
+internal constexpr float4 blue{ 0.f, 0.f, 1.0f, 1.0f };
+internal constexpr float4 black{ 0.0f, 0.0f, 0.0f, 1.0f };
+
+internal float4 clearColors[NUM_FRAMES]{ red, green, blue };
 
 
 
 
-static void WaitForFence(ID3D12Fence* fence, uint64 valueToWaitFor)
+
+
+internal void WaitForFence(ID3D12Fence* fence, uint64 valueToWaitFor)
 {
 	uint64 fenceValue{ fence->GetCompletedValue() };
 	if (fenceValue < valueToWaitFor)
@@ -89,7 +103,7 @@ static void WaitForFence(ID3D12Fence* fence, uint64 valueToWaitFor)
 
 }
 
-static void Flush(ID3D12CommandQueue* queue, ID3D12Fence* fence, uint64& fenceValue)
+internal void Flush(ID3D12CommandQueue* queue, ID3D12Fence* fence, uint64& fenceValue)
 {
 	queue->Signal(fence, fenceValue);
 	fence->SetEventOnCompletion(fenceValue, directFenceEvent);
@@ -98,12 +112,18 @@ static void Flush(ID3D12CommandQueue* queue, ID3D12Fence* fence, uint64& fenceVa
 }
 
 
-static void Update(fp64 dt)
+internal void Update(fp64 dt)
 {
 
 }
 
-static void Render(fp64 dt)
+internal void PrepInitialDataUpload()
+{
+
+}
+
+
+internal void Render(fp64 dt)
 {
 	ID3D12CommandAllocator* frameAlloc{ commandAllocators[currentFrame].Get() };
 	ID3D12GraphicsCommandList* frameList{ directList.Get() };
@@ -129,6 +149,7 @@ static void Render(fp64 dt)
 
 	D3D12_CPU_DESCRIPTOR_HANDLE descriptorHandle{ rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart() };
 	descriptorHandle.ptr += rtvDescriptorSize * currentFrame;
+
 
 
 
@@ -166,7 +187,7 @@ static void Render(fp64 dt)
 }
 
 
-static void UpdateApp(fp64 dt)
+internal void UpdateApp(fp64 dt)
 {
 	Update(dt);
 	Render(dt);
@@ -590,7 +611,7 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdL
 	}
 	dxgidebug->ReportLiveObjects(DXGI_DEBUG_ALL, DXGI_DEBUG_RLO_IGNORE_INTERNAL);
 
-
+	PrepInitialDataUpload();
 
 	std::chrono::system_clock::time_point prevFrame{ std::chrono::system_clock::now()};
 
