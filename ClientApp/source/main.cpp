@@ -147,10 +147,8 @@ internal void WaitForFence(ID3D12Fence* fence, uint64 valueToWaitFor)
 
 internal void Flush(ID3D12CommandQueue* queue, ID3D12Fence* fence, uint64& fenceValue)
 {
-	queue->Signal(fence, fenceValue);
-	fence->SetEventOnCompletion(fenceValue, directFenceEvent);
+	queue->Signal(fence, ++fenceValue);
 	WaitForFence(fence, fenceValue);
-	++fenceValue;
 }
 
 
@@ -404,7 +402,6 @@ internal void PrepInitialDataUpload()
 	}
 	
 
-	directQueue->Signal(directFence.Get(), frameDirectFenceValue[currentFrame]++);
 }
 
 
@@ -492,8 +489,8 @@ internal void Render(fp64 dt)
 	const uint64 signalValue = frameDirectFenceValue[currentFrame] + 1;
 	directQueue->Signal(directFence.Get(), signalValue);
 
-	frameDirectFenceValue[currentFrame] = signalValue;
 	currentFrame = swapChain->GetCurrentBackBufferIndex();
+	frameDirectFenceValue[currentFrame] = signalValue;
 }
 
 
@@ -525,14 +522,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 		{
 			std::cout << "Resize { " << width << ", " << height << " }\n";
 			//flush
-			uint64 fenceValue{ frameDirectFenceValue[currentFrame] };
 
-			Flush(directQueue.Get(), directFence.Get(), fenceValue);
+			Flush(directQueue.Get(), directFence.Get(), frameDirectFenceValue[currentFrame]);
 
 			//Reset all fences to the same value (basically scratch all frames and start over)
 			for (int32 i{}; i < NUM_FRAMES; ++i)
 			{
-				frameDirectFenceValue[i] = fenceValue;
+				frameDirectFenceValue[i] = frameDirectFenceValue[currentFrame];
 				backBuffers[i].Reset();
 			}
 
@@ -922,10 +918,10 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdL
 	
 	directQueue->ExecuteCommandLists(1, commandLists);
 	
-	Flush(directQueue.Get(), directFence.Get(), frameDirectFenceValue[currentFrame]);
-
-
-
+	directQueue->Signal(directFence.Get(), ++frameDirectFenceValue[currentFrame]);
+	
+	
+	
 	std::chrono::system_clock::time_point prevFrame{ std::chrono::system_clock::now()};
 
 	static constexpr fp64 targetMs{ 1000. / 60. }; //120fps
