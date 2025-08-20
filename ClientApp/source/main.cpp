@@ -526,11 +526,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 			Flush(directQueue.Get(), directFence.Get(), frameDirectFenceValue[currentFrame]);
 
 			//Reset all fences to the same value (basically scratch all frames and start over)
-			for (int32 i{}; i < NUM_FRAMES; ++i)
-			{
+				for (int32 i{}; i < NUM_FRAMES; ++i)
+				{
 				frameDirectFenceValue[i] = frameDirectFenceValue[currentFrame];
-				backBuffers[i].Reset();
-			}
+					backBuffers[i].Reset();
+				}
 
 			swapChain->ResizeBuffers(NUM_FRAMES, width, height, dsc.Format, dsc.Flags);
 
@@ -545,7 +545,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 				device->CreateRenderTargetView(backBuffers[i].Get(), nullptr, descriptorHandle);
 				descriptorHandle.ptr += rtvDescriptorSize;
 			}
-			
+
+			windowRect = clientRect;
 		}
 
 		
@@ -679,28 +680,28 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdL
 		ComPtr<ID3D12Debug> dbgLayer;
 
 		D3D12GetDebugInterface(IID_PPV_ARGS(&dbgLayer));
-
+		
 		dbgLayer->EnableDebugLayer();
-
+		
 		{
 			ComPtr<ID3D12Debug1> dbLayer1;
-
+		
 			dbgLayer.As(&dbLayer1);
-
-			if (dbLayer1)
-			{
-				dbLayer1->SetEnableGPUBasedValidation(TRUE);
-				dbLayer1->SetEnableSynchronizedCommandQueueValidation(TRUE);
+		
+		if (dbLayer1)
+		{
+			dbLayer1->SetEnableGPUBasedValidation(TRUE);
+			dbLayer1->SetEnableSynchronizedCommandQueueValidation(TRUE);
+		}
+		if (SUCCEEDED(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&dxgidebug)))) {
 			}
-			if (SUCCEEDED(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&dxgidebug)))) {
-			}
-
+		
 		}
 		{
 			ComPtr<ID3D12Debug2> dbLayer2;
-
+		
 			dbgLayer.As(&dbLayer2);
-
+		
 			if (dbLayer2)
 			{
 				dbLayer2->SetGPUBasedValidationFlags(D3D12_GPU_BASED_VALIDATION_FLAGS_NONE);
@@ -708,15 +709,15 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdL
 		}
 		{
 			ComPtr<ID3D12Debug5> dbLayer5;
-
+		
 			dbgLayer.As(&dbLayer5);
-
+		
 			if (dbLayer5)
 			{
 				dbLayer5->SetEnableAutoName(TRUE);
 			}
 		}
-
+		
 		debugLayer = dbgLayer;
 
 		//Create adapter, then create device by finding suitable adapter. Check for a factory and if we have factory6 query by preference
@@ -826,8 +827,9 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdL
 		for (int32 i{}; i < NUM_FRAMES; ++i)
 		{
 			d3Device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&d3dAllocator[i]));
+			d3dAllocator[i]->Reset();
 		}
-
+		
 
 		//Command List
 		ComPtr<ID3D12GraphicsCommandList> d3dCommandList;
@@ -899,7 +901,7 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdL
 
 		D3D12MA::CreateAllocator(&mallocatorDsc, &d3dmallocator);
 
-		
+
 		
 
 
@@ -946,6 +948,7 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdL
 		}
 		std::chrono::system_clock::time_point currentFrame{ std::chrono::system_clock::now() };
 		std::chrono::duration<fp64, std::milli> diff{ currentFrame - prevFrame };
+
 
 		fp64 delta{ diff.count() };
 		while (delta < targetMs)
