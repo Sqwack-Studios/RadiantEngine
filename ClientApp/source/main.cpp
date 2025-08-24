@@ -33,7 +33,7 @@ using namespace Microsoft::WRL;
 using namespace RE;
 
 internal constexpr fp32 ASPECT_RATIO{ 16.f / 9.f };
-internal constexpr int16 INITIAL_HEIGHT{ 1080 };
+internal constexpr int16 INITIAL_HEIGHT{ 720 };
 internal constexpr int16 INITIAL_WIDTH{ static_cast<int16>(INITIAL_HEIGHT * ASPECT_RATIO) };
 internal constexpr int8 NUM_FRAMES{ 3 };
 internal constexpr wchar_t WINDOW_NAME[]{ L"FedeGordo" };
@@ -99,7 +99,7 @@ struct str
 	T* data;
 	size_t num;
 	size_t cap;
-
+	
 	operator Span<T>()
 	{
 		return Span<T>{.data = data, .num = num };
@@ -234,13 +234,25 @@ internal void PrepInitialDataUpload()
 	ComPtr<ID3DBlob> serializedBlob;
 	ComPtr<ID3DBlob> errorBlob;
 
+	D3D12_ROOT_PARAMETER1 pushConstants{
+		.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS,
+		.Constants = {
+		.ShaderRegister = 0,
+		.RegisterSpace = 0,
+		.Num32BitValues = 1},
+		.ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX
+	};
+
+	const D3D12_ROOT_PARAMETER1 rootParams[]{ pushConstants };
 	D3D12_VERSIONED_ROOT_SIGNATURE_DESC rsDsc{
 		.Version = D3D_ROOT_SIGNATURE_VERSION_1_1,
-		.Desc_1_1 = {.NumParameters = 0,
-				.pParameters = nullptr,
+		.Desc_1_1 = {.NumParameters = 1,
+				.pParameters = rootParams,
 				.NumStaticSamplers = 0,
 				.pStaticSamplers = 0,
-				.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT}
+				.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT | D3D12_ROOT_SIGNATURE_FLAG_DENY_AMPLIFICATION_SHADER_ROOT_ACCESS
+		| D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS | D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS | D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS |
+		 D3D12_ROOT_SIGNATURE_FLAG_ALLOW_STREAM_OUTPUT | D3D12_ROOT_SIGNATURE_FLAG_DENY_MESH_SHADER_ROOT_ACCESS }
 	};
 
 	D3D12SerializeVersionedRootSignature(&rsDsc, serializedBlob.GetAddressOf(), errorBlob.GetAddressOf());
@@ -353,9 +365,9 @@ internal void PrepInitialDataUpload()
 	{//copy to staging
 		vtx  tri[3]
 		{
-			vtx{.pos = float3{0.f, 0.25f * ASPECT_RATIO, 0.f}, .color = float3{1.0f, 0.0f, 0.0f}},
-			vtx{.pos = float3{0.25f, -0.25f * ASPECT_RATIO, 0.f}, .color = float3{0.0f, 1.0f, 0.0f}},
-			vtx{.pos = float3{-0.25f, -0.25f * ASPECT_RATIO, 0.f}, .color = float3{0.0f, 0.0f, 1.0f}}
+			vtx{.pos = float3{0.f, 0.25f, 0.f}, .color = float3{1.0f, 0.0f, 0.0f}},
+			vtx{.pos = float3{0.25f, -0.25f, 0.f}, .color = float3{0.0f, 1.0f, 0.0f}},
+			vtx{.pos = float3{-0.25f, -0.25f, 0.f}, .color = float3{0.0f, 0.0f, 1.0f}}
 		};
 
 		D3D12_RANGE mapRange{
@@ -368,18 +380,6 @@ internal void PrepInitialDataUpload()
 		memcpy(map, tri, sizeof(vtx) * 3);
 		vtxStagingBuffer->Unmap(0, nullptr);
 
-		//const D3D12_RESOURCE_BARRIER barrierDsc{
-		//	.Type = D3D12_RESOURCE_BARRIER_TYPE::D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
-		//	.Flags = D3D12_RESOURCE_BARRIER_FLAGS::D3D12_RESOURCE_BARRIER_FLAG_NONE,
-		//	.Transition = D3D12_RESOURCE_TRANSITION_BARRIER{
-		//					.pResource = vtxStagingBuffer.Get(),
-		//					.Subresource = 0,
-		//					.StateBefore = D3D12_RESOURCE_STATE_COMMON,
-		//					.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE}
-		//};
-		//
-		////transition to copy src
-		//directList->ResourceBarrier(1, &barrierDsc);
 	}
 
 	{//enqueue copy from staging to resident
@@ -435,15 +435,16 @@ internal void Render(fp64 dt)
 	D3D12_CPU_DESCRIPTOR_HANDLE descriptorHandle{ rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart() };
 	descriptorHandle.ptr += rtvDescriptorSize * currentFrame;
 
-
-
+	fp32 viewportWidth{ static_cast<fp32>(windowRect.right - windowRect.left) };
+	fp32 viewportHeight{ static_cast<fp32>(windowRect.bottom - windowRect.top) };
+	const fp32 aspectRatio{ viewportWidth / viewportHeight };
 
 	{//Setup viewport
 		D3D12_VIEWPORT viewport{
 			.TopLeftX = 0.f,
 			.TopLeftY = 0.f,
-			.Width = static_cast<FLOAT>(windowRect.right - windowRect.left),
-			.Height = static_cast<FLOAT>(windowRect.bottom - windowRect.top),
+			.Width = viewportWidth,
+			.Height = viewportHeight,
 			.MinDepth = 0.f,
 			.MaxDepth = 1.f
 		};
@@ -458,6 +459,7 @@ internal void Render(fp64 dt)
 
 	frameList->SetPipelineState(pso.Get());
 	frameList->SetGraphicsRootSignature(rootSignature.Get());
+	frameList->SetGraphicsRoot32BitConstants(0, 1, &aspectRatio, 0);
 	frameList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	frameList->IASetVertexBuffers(0, 1, &vtxBufferView);
 
@@ -480,7 +482,6 @@ internal void Render(fp64 dt)
 	}
 
 	frameList->Close();
-
 	ID3D12CommandList* commandLists[]{ frameList };
 	directQueue->ExecuteCommandLists(1, commandLists);
 
@@ -527,11 +528,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 			Flush(directQueue.Get(), directFence.Get(), frameDirectFenceValue[currentFrame]);
 
 			//Reset all fences to the same value (basically scratch all frames and start over)
-				for (int32 i{}; i < NUM_FRAMES; ++i)
-				{
-				frameDirectFenceValue[i] = frameDirectFenceValue[currentFrame];
-					backBuffers[i].Reset();
-				}
+			for (int32 i{}; i < NUM_FRAMES; ++i)
+			{
+				backBuffers[i].Reset();
+			}
 
 			swapChain->ResizeBuffers(NUM_FRAMES, width, height, dsc.Format, dsc.Flags);
 
@@ -761,14 +761,14 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdL
 
 
 				//try to create the device... if success... blabla
-				if (SUCCEEDED(D3D12CreateDevice(dxgiAdapter.Get(), D3D_FEATURE_LEVEL_12_2, __uuidof(ID3D12Device), nullptr)))
+				if (SUCCEEDED(D3D12CreateDevice(dxgiAdapter.Get(), D3D_FEATURE_LEVEL_12_0, __uuidof(ID3D12Device), nullptr)))
 				{
 					break;
 				}
 			}
 		}
 
-		D3D12CreateDevice(dxgiAdapter.Get(), D3D_FEATURE_LEVEL_12_2, IID_PPV_ARGS(&d3Device));
+		D3D12CreateDevice(dxgiAdapter.Get(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&d3Device));
 
 		bool supportsVRR{ false };
 

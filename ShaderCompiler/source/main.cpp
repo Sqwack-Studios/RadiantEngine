@@ -71,13 +71,13 @@ enum eShaderType : std::uint8_t {
 static constexpr const wchar_t* ShaderTypeToString(eShaderType type)
 {
 	constexpr const wchar_t* lut[]{
-		L"vs_6_7",
-		L"hs_6_7",
-		L"ds_6_7",
-		L"gs_6_7",
-		L"ps_6_7",
-		L"cs_6_7",
-		L"ms_6_7",
+		L"vs_6_5",
+		L"hs_6_5",
+		L"ds_6_5",
+		L"gs_6_5",
+		L"ps_6_5",
+		L"cs_6_5",
+		L"ms_6_5",
 		L"Unknown shader type"
 
 	};

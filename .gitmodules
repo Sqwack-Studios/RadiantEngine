@@ -4,3 +4,6 @@
 [submodule "vendor/D3D12MemoryAllocator"]
 	path = vendor/D3D12MemoryAllocator
 	url = https://github.com/GPUOpen-LibrariesAndSDKs/D3D12MemoryAllocator.git
+[submodule "vendor/OpenFBX"]
+	path = vendor/OpenFBX
+	url = https://github.com/nem0/OpenFBX.git
