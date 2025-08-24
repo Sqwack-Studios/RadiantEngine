@@ -12,9 +12,10 @@ project "ClientApp "
     includedirs
 	{
 		"../RadiantEngine/include",
-		"../RadiantEngine/shaders",
 		"../vendor/quill/include",
-		"../vendor/D3D12MemoryAllocator/include"
+		"../vendor/D3D12MemoryAllocator/include",
+		"../vendor/D3D12MemoryAllocator/src",
+		"../vendor/OpenFBX/src"
 	}
 
 
@@ -23,7 +24,9 @@ project "ClientApp "
 		"source/**.cpp",
 		"../RadiantEngine/include/**.hpp",
 		"../RadiantEngine/include/**.h",
-		"../vendor/D3D12MemoryAllocator/src/D3D12MemAlloc.cpp"
+		"../vendor/D3D12MemoryAllocator/src/D3D12MemAlloc.cpp",
+		"../assets/shaders/*",
+		"../vendor/OpenFBX/src/*"
 	}
 
 
@@ -41,6 +44,17 @@ project "ClientApp "
 		staticruntime "on"
 		flags {"MultiProcessorCompile"}
 
+	
+	filter { "files:../assets/shaders/**.hlsl" }
+        buildaction "None"
+	filter { "files:../assets/shaders/**.hlsli" }
+        buildaction "None"
+	
+	filter {"files:../vendor/OpenFBX/src/*"}
+	buildaction "None"
+
+	filter{"files:../vendor/D3D12MemoryAllocator/src/*"}
+	buildaction "None"
 
 	filter "configurations:Debug"
 			defines "APP_DEBUG"

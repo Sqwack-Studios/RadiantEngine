@@ -28,7 +28,13 @@ using namespace Microsoft::WRL;
 //Engine
 #include "RadiantEngine/core/types.h"
 #include "RadiantEngine/math/floatN.h"
-#include "D3D12MemAlloc.h"
+
+
+//LIBS
+#include "D3D12MemAlloc.cpp"
+#include "libdeflate.c"
+#include "ofbx.cpp"
+
 
 using namespace RE;
 
