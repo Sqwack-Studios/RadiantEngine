@@ -1,6 +1,12 @@
 #ifndef _BASIC_VS_HLSL_
 #define _BASIC_VS_HLSL_
 
+
+cbuffer pushConstants : register(b0)
+{
+	float ar;
+};
+
 struct VSin
 {
     float3 pos : POSITION;
@@ -17,7 +23,7 @@ struct VSOut
 VSOut VSMain(VSin vin)
 {
     VSOut output;
-    output.pos = float4(vin.pos, 1.f);
+    output.pos = float4(vin.pos * float3(1.f, ar, 1.f), 1.f);
     output.color = vin.color;
     
     return output;
