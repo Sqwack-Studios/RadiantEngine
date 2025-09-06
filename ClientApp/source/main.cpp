@@ -18,7 +18,7 @@
 #include <execution>
 #include <iostream>
 #include <chrono>
-
+#include <algorithm>
 
 using namespace Microsoft::WRL;
 
@@ -32,8 +32,8 @@ using namespace Microsoft::WRL;
 
 //LIBS
 #include "D3D12MemAlloc.cpp"
-#include "libdeflate.c"
-#include "ofbx.cpp"
+//#include "libdeflate.c"
+//#include "ofbx.cpp"
 
 
 using namespace RE;
@@ -124,18 +124,18 @@ internal constexpr Span<T> ShaderRegistryPath();
 
 namespace {
 
-	constexpr const char shaderAssetsRelPath[]{ "../../shaders" };
-	constexpr const wchar_t shaderAssetsRelWPath[]{ L"../../shaders" };
+	constexpr const char shaderAssetsRelPath[]{ "../shaders" };
+	constexpr const wchar_t shaderAssetsRelWPath[]{ L"../shaders" };
 }
 
 template<>
-internal constexpr Span<const char> ShaderRegistryPath()
+constexpr Span<const char> ShaderRegistryPath()
 {
 	return { .data = shaderAssetsRelPath, .num = _countof(shaderAssetsRelPath) };
 }
 
 template<>
-internal constexpr Span<const wchar_t> ShaderRegistryPath()
+constexpr Span<const wchar_t> ShaderRegistryPath()
 {
 	return {.data = shaderAssetsRelWPath, .num = _countof(shaderAssetsRelWPath) };
 }

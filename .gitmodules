@@ -7,3 +7,6 @@
 [submodule "vendor/OpenFBX"]
 	path = vendor/OpenFBX
 	url = https://github.com/nem0/OpenFBX.git
+[submodule "vendor/imgui"]
+	path = vendor/imgui
+	url = https://github.com/Sqwack-Studios/imgui.git
