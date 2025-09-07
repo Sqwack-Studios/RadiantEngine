@@ -49,7 +49,7 @@ if "%verbose%"=="1" (
 	set cl_warnings=/W0
 )
 
-set cl_common=/I RadiantEngine\include /I vendor\quill\include /I vendor\D3D12MemoryAllocator\src\ /I vendor\D3D12MemoryAllocator\include\ /I vendor\OpenFBX\src /nologo /FC %cl_warnings% /MP /Gw /MT /GR- /EHs- /EHc- /wd4324 /wd4530 /arch:SSE4.2 /D UNICODE /D _UNICODE /D _HAS_EXCEPTIONS_=0 /std:c++20
+set cl_common=/I RadiantEngine\include /I vendor\quill\include /I vendor\D3D12MemoryAllocator\src\ /I vendor\D3D12MemoryAllocator\include\ /I vendor\OpenFBX\src /nologo /I vendor\imgui /FC %cl_warnings% /MP /Gw /MT /GR- /EHs- /EHc- /wd4324 /wd4530 /arch:SSE4.2 /D UNICODE /D _UNICODE /D _HAS_EXCEPTIONS_=0 /std:c++20
 
 if "%debug%"=="1" (
     set compile_opts=/Od /Ob2 /Zi /D DEBUG_MODE=1 %cl_common%
