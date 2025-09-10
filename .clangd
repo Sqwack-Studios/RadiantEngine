@@ -1,0 +1,9 @@
+CompileFlags:
+  Add: 
+  - "--include-directory=C:/Users/Daniel/source/repos/RadiantEngine/vendor/D3D12MemoryAllocator/include"
+  - "--include-directory=C:/Users/Daniel/source/repos/RadiantEngine/vendor/D3D12MemoryAllocator/src"
+  -  "--include-directory=C:/Users/Daniel/source/repos/RadiantEngine/vendor/imgui"
+  - "--include-directory=C:/Users/Daniel/source/repos/RadiantEngine/vendor/quill/include"
+  - "--include-directory=C:/Users/Daniel/source/repos/RadiantEngine/RadiantEngine/include"
+  - "--include-directory=C:/Users/Daniel/source/repos/RadiantEngine/vendor/OpenFBX/src"
+  - -std=c++20
