@@ -8,5 +8,5 @@ local builtin = require('telescope.builtin')
         vim.fn.getcwd(),
         "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/include",
         "C:/Program Files (x86)/Windows Kits/10/Include/10.0.22621.0"
-    })
+    }})
   end, { desc = 'Find files incluing SDK/STL' })
